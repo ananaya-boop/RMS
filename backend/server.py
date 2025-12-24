@@ -731,6 +731,17 @@ async def get_posh_reports(current_user: User = Depends(get_current_user)):
     
     return reports
 
+# ============= AUDIT LOGS =============
+
+@api_router.get("/audit-logs")
+async def get_audit_logs(current_user: User = Depends(get_current_user)):
+    """Get audit logs (Admin/DPO only)"""
+    if current_user.role not in ["admin", "dpo"]:
+        raise HTTPException(status_code=403, detail="Only Admin or DPO can view audit logs")
+    
+    logs = await db.audit_logs.find({}, {"_id": 0}).sort("timestamp", -1).limit(100).to_list(100)
+    return logs
+
 # ============= DASHBOARD STATS =============
 
 @api_router.get("/dashboard/stats")
