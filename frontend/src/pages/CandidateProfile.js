@@ -300,6 +300,64 @@ export default function CandidateProfile({ user, onLogout }) {
                 </CardContent>
               </Card>
 
+              <Card data-testid="interview-schedule-card">
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <CardTitle>Interview Schedule</CardTitle>
+                  <Button 
+                    data-testid="schedule-interview-btn"
+                    onClick={() => setShowSchedule(true)}
+                    size="sm"
+                    className="bg-indigo-600 hover:bg-indigo-700"
+                  >
+                    <CalendarIcon className="w-4 h-4 mr-2" />
+                    Schedule Interview
+                  </Button>
+                </CardHeader>
+                <CardContent>
+                  {schedules.length > 0 ? (
+                    <div className="space-y-3">
+                      {schedules.map((schedule) => (
+                        <div key={schedule.id} data-testid={`schedule-${schedule.id}`} className="border border-slate-200 rounded-lg p-3 bg-slate-50">
+                          <div className="flex items-center justify-between mb-2">
+                            <h4 className="font-semibold text-slate-900">{schedule.interview_type}</h4>
+                            <span className={`text-xs px-2 py-1 rounded ${
+                              schedule.status === 'scheduled' ? 'bg-blue-100 text-blue-800' :
+                              schedule.status === 'completed' ? 'bg-green-100 text-green-800' :
+                              'bg-red-100 text-red-800'
+                            }`}>
+                              {schedule.status}
+                            </span>
+                          </div>
+                          <div className="text-sm space-y-1">
+                            <p className="text-slate-600">
+                              <strong>Date:</strong> {new Date(schedule.start_time).toLocaleString()}
+                            </p>
+                            <p className="text-slate-600">
+                              <strong>Duration:</strong> {schedule.duration_minutes} minutes
+                            </p>
+                            <p className="text-slate-600">
+                              <strong>Interviewer:</strong> {schedule.interviewer_name}
+                            </p>
+                            {schedule.meeting_url && (
+                              <a 
+                                href={schedule.meeting_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-indigo-600 hover:text-indigo-800 text-sm underline inline-block mt-1"
+                              >
+                                Join Meeting →
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-600">No interviews scheduled yet</p>
+                  )}
+                </CardContent>
+              </Card>
+
               {candidate.stage_history && candidate.stage_history.length > 0 && (
                 <Card data-testid="timeline-card">
                   <CardHeader>
