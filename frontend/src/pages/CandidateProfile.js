@@ -450,6 +450,28 @@ export default function CandidateProfile({ user, onLogout }) {
                     POSH Report
                   </Button>
 
+                  <Button
+                    data-testid="withdraw-candidate-btn"
+                    onClick={() => setShowWithdrawal(true)}
+                    variant="outline"
+                    className="w-full border-amber-200 text-amber-700 hover:bg-amber-50"
+                  >
+                    <UserMinus className="w-4 h-4 mr-2" />
+                    Withdraw Candidate
+                  </Button>
+
+                  {(user.role === 'admin' || user.role === 'dpo') && (
+                    <Button
+                      data-testid="generate-snapshot-btn"
+                      onClick={handleGenerateSnapshot}
+                      variant="outline"
+                      className="w-full border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                    >
+                      <FileText className="w-4 h-4 mr-2" />
+                      Generate Data Snapshot
+                    </Button>
+                  )}
+
                   {(user.role === 'admin' || user.role === 'dpo') && (
                     <Button
                       data-testid="purge-data-btn"
