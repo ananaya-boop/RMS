@@ -234,6 +234,30 @@ class WithdrawalCreate(BaseModel):
     reason: str
     purge_immediately: bool = False
 
+class AppointmentLetter(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    candidate_id: str
+    designation: str
+    joining_date: datetime
+    ctc_annual: float
+    ctc_breakup: Dict[str, float]  # {"basic": 500000, "hra": 200000, "bonus": 100000}
+    reporting_manager: str
+    work_location: str
+    pdf_url: Optional[str] = None
+    email_sent: bool = False
+    sent_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class AppointmentLetterCreate(BaseModel):
+    candidate_id: str
+    designation: str
+    joining_date: datetime
+    ctc_annual: float
+    ctc_breakup: Dict[str, float]
+    reporting_manager: str
+    work_location: str
+
 class EmailRequest(BaseModel):
     recipient_email: EmailStr
     subject: str
