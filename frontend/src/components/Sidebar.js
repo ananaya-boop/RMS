@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { LayoutDashboard, KanbanSquare, Briefcase, Shield, LogOut } from 'lucide-react';
+import { LayoutDashboard, KanbanSquare, Briefcase, Shield, LogOut, UserX } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export default function Sidebar({ user, onLogout, activePage }) {
@@ -9,6 +9,7 @@ export default function Sidebar({ user, onLogout, activePage }) {
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/' },
     { id: 'kanban', label: 'Kanban Board', icon: KanbanSquare, path: '/kanban' },
     { id: 'jobs', label: 'Jobs', icon: Briefcase, path: '/jobs' },
+    { id: 'withdrawals', label: 'Withdrawals', icon: UserX, path: '/withdrawals' },
     { id: 'compliance', label: 'Compliance', icon: Shield, path: '/compliance' },
   ];
 
