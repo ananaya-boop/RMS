@@ -207,6 +207,15 @@ export default function KanbanBoard({ user, onLogout }) {
                 <Plus className="w-4 h-4 mr-2" />
                 Add Candidate
               </Button>
+              <Button 
+                data-testid="view-declined-btn"
+                onClick={() => setShowDeclinedSidebar(true)}
+                variant="outline"
+                className="border-rose-200 text-rose-700 hover:bg-rose-50"
+              >
+                <XCircle className="w-4 h-4 mr-2" />
+                Declined ({getDeclinedCandidates().length})
+              </Button>
             </div>
           </div>
 
