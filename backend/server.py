@@ -101,7 +101,8 @@ class CandidateStage(str):
     HR_ROUND = "hr_round"
     OFFER = "offer"
     ONBOARDING = "onboarding"
-    REJECTED = "rejected"
+    DECLINED = "declined"  # Pending rejection - in declined sidebar
+    REJECTED = "rejected"  # Fully rejected and purged
 
 class ConsentLog(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
