@@ -41,6 +41,7 @@ export default function CandidateProfile({ user, onLogout }) {
   useEffect(() => {
     fetchCandidate();
     fetchScorecards();
+    fetchSchedules();
   }, [candidateId]);
 
   const fetchCandidate = async () => {
