@@ -216,6 +216,22 @@ export default function WithdrawalsPage({ user, onLogout }) {
 
                             <div className="ml-4 flex flex-col gap-2">
                               <Button
+                                data-testid={`approve-withdrawal-${request.id}`}
+                                size="sm"
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                                onClick={() => handleApproveWithdrawal(request.id, request.purge_immediately)}
+                                disabled={approving === request.id}
+                              >
+                                {approving === request.id ? (
+                                  '⏳ Processing...'
+                                ) : (
+                                  <>
+                                    <CheckCircle className="w-4 h-4 mr-1" />
+                                    Approve Withdrawal
+                                  </>
+                                )}
+                              </Button>
+                              <Button
                                 data-testid={`generate-snapshot-${request.id}`}
                                 size="sm"
                                 variant="outline"
