@@ -1019,6 +1019,345 @@ async def get_interviewers(current_user: User = Depends(get_current_user)):
     
     return interviewers
 
+# ============= APPOINTMENT LETTER AUTOMATION =============
+
+@api_router.post("/candidates/{candidate_id}/generate-appointment-letter")
+async def generate_appointment_letter(
+    candidate_id: str,
+    appointment_data: AppointmentLetterCreate,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Generate and send appointment letter when candidate is onboarded.
+    Triggered when candidate moves to 'Onboarded' stage.
+    """
+    # Get candidate details
+    candidate = await db.candidates.find_one({"id": candidate_id}, {"_id": 0})
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    # Get job details
+    job = await db.jobs.find_one({"id": candidate['job_id']}, {"_id": 0})
+    company_name = "Talent Cockpit Inc."  # Can be made configurable
+    
+    # Create appointment letter object
+    letter_obj = AppointmentLetter(**appointment_data.model_dump())
+    
+    # Generate PDF
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+    doc = SimpleDocTemplate(temp_file.name, pagesize=letter)
+    story = []
+    styles = getSampleStyleSheet()
+    
+    # Custom styles
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=20,
+        textColor=colors.HexColor('#1e1b4b'),
+        spaceAfter=20,
+        alignment=1  # Center
+    )
+    
+    heading_style = ParagraphStyle(
+        'CustomHeading',
+        parent=styles['Heading2'],
+        fontSize=14,
+        textColor=colors.HexColor('#1e1b4b'),
+        spaceAfter=10
+    )
+    
+    # Header
+    story.append(Spacer(1, 0.5*inch))
+    story.append(Paragraph(f"<b>{company_name}</b>", title_style))
+    story.append(Paragraph("APPOINTMENT LETTER", title_style))
+    story.append(Spacer(1, 0.3*inch))
+    
+    # Date
+    story.append(Paragraph(f"Date: {datetime.now(timezone.utc).strftime('%B %d, %Y')}", styles['Normal']))
+    story.append(Spacer(1, 0.2*inch))
+    
+    # Candidate details
+    story.append(Paragraph(f"<b>{candidate['name']}</b>", styles['Normal']))
+    story.append(Paragraph(candidate['email'], styles['Normal']))
+    if candidate.get('phone'):
+        story.append(Paragraph(candidate['phone'], styles['Normal']))
+    story.append(Spacer(1, 0.3*inch))
+    
+    # Salutation
+    story.append(Paragraph(f"Dear {candidate['name']},", styles['Normal']))
+    story.append(Spacer(1, 0.2*inch))
+    
+    # Main content
+    story.append(Paragraph("<b>Subject: Appointment as " + appointment_data.designation + "</b>", styles['Normal']))
+    story.append(Spacer(1, 0.2*inch))
+    
+    content_text = f"""
+    We are pleased to inform you that you have been selected for the position of <b>{appointment_data.designation}</b> 
+    with {company_name}. We are confident that your skills and experience will be valuable assets to our team.
+    """
+    story.append(Paragraph(content_text, styles['Normal']))
+    story.append(Spacer(1, 0.2*inch))
+    
+    # Terms of Employment
+    story.append(Paragraph("<b>Terms of Employment:</b>", heading_style))
+    
+    terms_data = [
+        ['Position:', appointment_data.designation],
+        ['Joining Date:', appointment_data.joining_date.strftime('%B %d, %Y')],
+        ['Work Location:', appointment_data.work_location],
+        ['Reporting Manager:', appointment_data.reporting_manager],
+        ['Annual CTC:', f"₹ {appointment_data.ctc_annual:,.2f}"],
+    ]
+    
+    terms_table = Table(terms_data, colWidths=[2*inch, 4*inch])
+    terms_table.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 11),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ('TOPPADDING', (0, 0), (-1, -1), 8),
+    ]))
+    story.append(terms_table)
+    story.append(Spacer(1, 0.3*inch))
+    
+    # CTC Breakup
+    story.append(Paragraph("<b>Salary Breakup (Annual):</b>", heading_style))
+    
+    ctc_data = [['Component', 'Amount (₹)']]
+    for component, amount in appointment_data.ctc_breakup.items():
+        ctc_data.append([component.replace('_', ' ').title(), f"₹ {amount:,.2f}"])
+    ctc_data.append(['<b>Total CTC</b>', f"<b>₹ {appointment_data.ctc_annual:,.2f}</b>"])
+    
+    ctc_table = Table(ctc_data, colWidths=[3*inch, 2*inch])
+    ctc_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4f46e5')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 11),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ('TOPPADDING', (0, 0), (-1, -1), 8),
+    ]))
+    story.append(ctc_table)
+    story.append(Spacer(1, 0.3*inch))
+    
+    # Terms and Conditions
+    story.append(Paragraph("<b>Terms and Conditions:</b>", heading_style))
+    terms_text = """
+    1. Your employment will be subject to satisfactory verification of documents and references.<br/>
+    2. You will be on probation for a period of 6 months from the date of joining.<br/>
+    3. This appointment is subject to your acceptance within 7 days of receiving this letter.<br/>
+    4. You agree to abide by all company policies and procedures.<br/>
+    5. Your employment may be terminated by either party with 30 days' notice or payment in lieu thereof.
+    """
+    story.append(Paragraph(terms_text, styles['Normal']))
+    story.append(Spacer(1, 0.3*inch))
+    
+    # Closing
+    closing_text = """
+    We look forward to welcoming you to our team. Please sign and return a copy of this letter as your acceptance 
+    of this offer. Should you have any questions, please feel free to contact our HR department.
+    """
+    story.append(Paragraph(closing_text, styles['Normal']))
+    story.append(Spacer(1, 0.5*inch))
+    
+    # Signature section
+    story.append(Paragraph("Sincerely,", styles['Normal']))
+    story.append(Spacer(1, 0.5*inch))
+    story.append(Paragraph(f"<b>{company_name}</b>", styles['Normal']))
+    story.append(Paragraph("Human Resources Department", styles['Normal']))
+    story.append(Spacer(1, 0.5*inch))
+    
+    # Acceptance section
+    story.append(Paragraph("=" * 80, styles['Normal']))
+    story.append(Paragraph("<b>ACCEPTANCE</b>", heading_style))
+    acceptance_text = """
+    I accept the terms and conditions mentioned in this appointment letter.<br/><br/>
+    Signature: _________________________<br/><br/>
+    Name: """ + candidate['name'] + """<br/><br/>
+    Date: _________________________
+    """
+    story.append(Paragraph(acceptance_text, styles['Normal']))
+    
+    # Footer
+    story.append(Spacer(1, 0.3*inch))
+    story.append(Paragraph("This is a computer-generated document and does not require a physical signature.", 
+                          ParagraphStyle('Footer', parent=styles['Normal'], fontSize=8, textColor=colors.gray)))
+    
+    # Build PDF
+    doc.build(story)
+    
+    # Read PDF content
+    with open(temp_file.name, 'rb') as f:
+        pdf_content = f.read()
+    
+    # Store PDF in database as base64
+    import base64
+    pdf_base64 = base64.b64encode(pdf_content).decode('utf-8')
+    
+    # Save appointment letter record
+    letter_dict = letter_obj.model_dump()
+    letter_dict['created_at'] = letter_dict['created_at'].isoformat()
+    letter_dict['joining_date'] = letter_dict['joining_date'].isoformat()
+    if letter_dict.get('sent_at'):
+        letter_dict['sent_at'] = letter_dict['sent_at'].isoformat()
+    letter_dict['pdf_base64'] = pdf_base64  # Store PDF
+    
+    await db.appointment_letters.insert_one(letter_dict)
+    
+    # Send email with attachment
+    if RESEND_API_KEY:
+        try:
+            email_html = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <style>
+                    body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                    .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                    .header {{ background: linear-gradient(135deg, #1e1b4b 0%, #4f46e5 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }}
+                    .content {{ padding: 30px; background-color: #f8fafc; }}
+                    .highlight {{ background-color: #eef2ff; border-left: 4px solid #4f46e5; padding: 15px; margin: 20px 0; }}
+                    .cta-button {{ display: inline-block; background-color: #4f46e5; color: white; padding: 15px 30px; text-decoration: none; border-radius: 6px; margin: 20px 0; font-weight: bold; }}
+                    .footer {{ padding: 20px; text-align: center; font-size: 12px; color: #666; background-color: #f1f5f9; border-radius: 0 0 10px 10px; }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <h1 style="margin: 0;">🎉 Congratulations!</h1>
+                        <p style="margin: 10px 0 0 0; font-size: 18px;">Welcome to {company_name}</p>
+                    </div>
+                    <div class="content">
+                        <p>Dear <strong>{candidate['name']}</strong>,</p>
+                        
+                        <p>We are thrilled to officially welcome you to the {company_name} family! 🎊</p>
+                        
+                        <div class="highlight">
+                            <h3 style="margin-top: 0;">Your Appointment Details</h3>
+                            <p><strong>Position:</strong> {appointment_data.designation}</p>
+                            <p><strong>Joining Date:</strong> {appointment_data.joining_date.strftime('%B %d, %Y')}</p>
+                            <p><strong>Location:</strong> {appointment_data.work_location}</p>
+                            <p><strong>Reporting to:</strong> {appointment_data.reporting_manager}</p>
+                        </div>
+                        
+                        <p>Please find your <strong>official Appointment Letter</strong> attached to this email. This document contains:</p>
+                        <ul>
+                            <li>Complete terms of employment</li>
+                            <li>Detailed salary breakup</li>
+                            <li>Company policies and guidelines</li>
+                            <li>Next steps for your onboarding</li>
+                        </ul>
+                        
+                        <p><strong>Action Required:</strong></p>
+                        <p>Please review the appointment letter carefully, sign it, and return a scanned copy to us within 7 days.</p>
+                        
+                        <h3>What to Expect on Your First Day:</h3>
+                        <ul>
+                            <li>📋 Complete onboarding formalities</li>
+                            <li>💻 Set up your workstation and accounts</li>
+                            <li>👥 Meet your team and manager</li>
+                            <li>🎯 Receive your initial project briefing</li>
+                        </ul>
+                        
+                        <p>If you have any questions or need assistance, please don't hesitate to reach out to our HR team.</p>
+                        
+                        <p>We're excited to have you on board and look forward to achieving great things together!</p>
+                        
+                        <p>Best regards,<br/>
+                        <strong>Human Resources Team</strong><br/>
+                        {company_name}</p>
+                    </div>
+                    <div class="footer">
+                        <p>This is an automated message. Please do not reply directly to this email.</p>
+                        <p>For any queries, contact: hr@talentcockpit.com</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """
+            
+            # Prepare attachment
+            params = {
+                "from": SENDER_EMAIL,
+                "to": [candidate['email']],
+                "subject": f"🎉 Congratulations! Your Appointment Letter from {company_name}",
+                "html": email_html,
+                "attachments": [
+                    {
+                        "filename": f"Appointment_Letter_{candidate['name'].replace(' ', '_')}.pdf",
+                        "content": pdf_base64
+                    }
+                ]
+            }
+            
+            await asyncio.to_thread(resend.Emails.send, params)
+            
+            # Update letter status
+            await db.appointment_letters.update_one(
+                {"id": letter_obj.id},
+                {
+                    "$set": {
+                        "email_sent": True,
+                        "sent_at": datetime.now(timezone.utc).isoformat()
+                    }
+                }
+            )
+            
+            logging.info(f"Appointment letter sent to {candidate['email']}")
+        except Exception as e:
+            logging.error(f"Failed to send appointment letter email: {str(e)}")
+            # Continue anyway - letter is generated
+    
+    # Create audit log
+    audit_log = {
+        "id": str(uuid.uuid4()),
+        "action": "appointment_letter_generated",
+        "candidate_id": candidate_id,
+        "candidate_email": candidate['email'],
+        "candidate_name": candidate['name'],
+        "performed_by": current_user.email,
+        "performed_by_name": current_user.name,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "details": {
+            "designation": appointment_data.designation,
+            "joining_date": appointment_data.joining_date.isoformat(),
+            "ctc": appointment_data.ctc_annual
+        }
+    }
+    await db.audit_logs.insert_one(audit_log)
+    
+    # Clean up temp file
+    os.unlink(temp_file.name)
+    
+    return {
+        "success": True,
+        "message": "Appointment letter generated and sent successfully",
+        "letter_id": letter_obj.id,
+        "email_sent": True if RESEND_API_KEY else False
+    }
+
+@api_router.get("/candidates/{candidate_id}/appointment-letters")
+async def get_appointment_letters(candidate_id: str, current_user: User = Depends(get_current_user)):
+    """Get all appointment letters for a candidate"""
+    letters = await db.appointment_letters.find(
+        {"candidate_id": candidate_id},
+        {"_id": 0, "pdf_base64": 0}  # Exclude PDF content from list
+    ).to_list(100)
+    
+    for letter in letters:
+        if isinstance(letter.get('created_at'), str):
+            letter['created_at'] = datetime.fromisoformat(letter['created_at'])
+        if isinstance(letter.get('joining_date'), str):
+            letter['joining_date'] = datetime.fromisoformat(letter['joining_date'])
+        if letter.get('sent_at') and isinstance(letter['sent_at'], str):
+            letter['sent_at'] = datetime.fromisoformat(letter['sent_at'])
+    
+    return letters
+
 # ============= CANDIDATE WITHDRAWAL (DPDP ACT) =============
 
 @api_router.post("/candidates/{candidate_id}/withdraw")
