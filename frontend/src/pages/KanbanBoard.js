@@ -1,0 +1,347 @@
+import { useState, useEffect } from 'react';
+import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import Sidebar from '@/components/Sidebar';
+import { toast } from 'sonner';
+import { Plus, Upload } from 'lucide-react';
+
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const API = `${BACKEND_URL}/api`;
+
+const STAGES = [
+  { id: 'sourced', label: 'Sourced', color: 'bg-blue-100 border-blue-200' },
+  { id: 'screened', label: 'Screened', color: 'bg-purple-100 border-purple-200' },
+  { id: 'technical', label: 'Technical Round', color: 'bg-amber-100 border-amber-200' },
+  { id: 'hr_round', label: 'HR Round', color: 'bg-indigo-100 border-indigo-200' },
+  { id: 'offer', label: 'Offer', color: 'bg-emerald-100 border-emerald-200' },
+  { id: 'onboarding', label: 'Onboarding', color: 'bg-green-100 border-green-200' },
+];
+
+export default function KanbanBoard({ user, onLogout }) {
+  const navigate = useNavigate();
+  const [candidates, setCandidates] = useState([]);
+  const [jobs, setJobs] = useState([]);
+  const [selectedJob, setSelectedJob] = useState(null);
+  const [showUpload, setShowUpload] = useState(false);
+  const [showAddCandidate, setShowAddCandidate] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [newCandidate, setNewCandidate] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    skills: '',
+    experience_years: 0
+  });
+
+  useEffect(() => {
+    fetchJobs();
+  }, []);
+
+  useEffect(() => {
+    if (selectedJob) {
+      fetchCandidates();
+    }
+  }, [selectedJob]);
+
+  const fetchJobs = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`${API}/jobs`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setJobs(response.data);
+      if (response.data.length > 0) {
+        setSelectedJob(response.data[0].id);
+      }
+    } catch (error) {
+      console.error('Error fetching jobs:', error);
+    }
+  };
+
+  const fetchCandidates = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`${API}/candidates?job_id=${selectedJob}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setCandidates(response.data);
+    } catch (error) {
+      console.error('Error fetching candidates:', error);
+    }
+  };
+
+  const handleUploadResume = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (!file.name.endsWith('.pdf') && !file.name.endsWith('.docx')) {
+      toast.error('Only PDF and DOCX files are supported');
+      return;
+    }
+
+    setUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.post(
+        `${API}/candidates/upload-resume?job_id=${selectedJob}`,
+        formData,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'multipart/form-data'
+          }
+        }
+      );
+      toast.success('Resume uploaded and parsed successfully!');
+      fetchCandidates();
+      setShowUpload(false);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to upload resume');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleAddCandidate = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post(`${API}/candidates`, {
+        ...newCandidate,
+        job_id: selectedJob,
+        skills: newCandidate.skills.split(',').map(s => s.trim()).filter(Boolean)
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      toast.success('Candidate added successfully!');
+      fetchCandidates();
+      setShowAddCandidate(false);
+      setNewCandidate({ name: '', email: '', phone: '', skills: '', experience_years: 0 });
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to add candidate');
+    }
+  };
+
+  const handleStageChange = async (candidateId, newStage) => {
+    try {
+      const token = localStorage.getItem('token');
+      await axios.put(`${API}/candidates/${candidateId}/stage`, 
+        { stage: newStage },
+        { headers: { Authorization: `Bearer ${token}` }}
+      );
+      toast.success('Candidate stage updated!');
+      fetchCandidates();
+    } catch (error) {
+      toast.error('Failed to update stage');
+    }
+  };
+
+  const getCandidatesByStage = (stage) => {
+    return candidates.filter(c => c.stage === stage);
+  };
+
+  return (
+    <div className="flex h-screen bg-slate-50">
+      <Sidebar user={user} onLogout={onLogout} activePage="kanban" />
+      
+      <div className="flex-1 overflow-auto">
+        <div className="p-8">
+          <div className="mb-6 flex items-center justify-between">
+            <div>
+              <h1 className="text-4xl font-bold tracking-tight text-slate-900" style={{ fontFamily: 'Manrope, sans-serif' }}>
+                Candidate Pipeline
+              </h1>
+              <p className="text-slate-600 mt-2">Drag and drop candidates across stages</p>
+            </div>
+            <div className="flex gap-3">
+              <select
+                data-testid="job-select"
+                value={selectedJob || ''}
+                onChange={(e) => setSelectedJob(e.target.value)}
+                className="px-4 py-2 border border-slate-200 rounded-lg bg-white"
+              >
+                {jobs.map(job => (
+                  <option key={job.id} value={job.id}>{job.title}</option>
+                ))}
+              </select>
+              <Button 
+                data-testid="upload-resume-btn"
+                onClick={() => setShowUpload(true)}
+                className="bg-[#1e1b4b] hover:bg-[#312e81]"
+              >
+                <Upload className="w-4 h-4 mr-2" />
+                Upload Resume
+              </Button>
+              <Button 
+                data-testid="add-candidate-btn"
+                onClick={() => setShowAddCandidate(true)}
+                variant="outline"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Add Candidate
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex gap-6 overflow-x-auto pb-8 snap-x">
+            {STAGES.map(stage => (
+              <div 
+                key={stage.id} 
+                data-testid={`stage-column-${stage.id}`}
+                className="min-w-[320px] bg-slate-50/50 rounded-xl border border-slate-200/60 p-4 flex flex-col gap-3"
+              >
+                <div className="flex items-center justify-between mb-2 px-1">
+                  <h3 className="font-semibold text-slate-900">{stage.label}</h3>
+                  <span className="text-xs font-mono text-slate-500">
+                    {getCandidatesByStage(stage.id).length}
+                  </span>
+                </div>
+                
+                <div className="space-y-3 min-h-[400px]">
+                  {getCandidatesByStage(stage.id).map(candidate => (
+                    <Card 
+                      key={candidate.id}
+                      data-testid={`candidate-card-${candidate.id}`}
+                      className="cursor-pointer hover:shadow-md transition-shadow"
+                      onClick={() => navigate(`/candidate/${candidate.id}`)}
+                    >
+                      <CardContent className="p-4">
+                        <h4 className="font-medium text-slate-900 mb-1">{candidate.name}</h4>
+                        <p className="text-xs text-slate-600 mb-2">{candidate.email}</p>
+                        {candidate.skills.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {candidate.skills.slice(0, 3).map((skill, idx) => (
+                              <span key={idx} className="text-xs px-2 py-0.5 bg-indigo-100 text-indigo-800 rounded">
+                                {skill}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <div className="mt-3 flex gap-2">
+                          {stage.id !== 'sourced' && (
+                            <button
+                              data-testid={`move-back-${candidate.id}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const currentIdx = STAGES.findIndex(s => s.id === stage.id);
+                                if (currentIdx > 0) {
+                                  handleStageChange(candidate.id, STAGES[currentIdx - 1].id);
+                                }
+                              }}
+                              className="text-xs px-2 py-1 bg-slate-200 hover:bg-slate-300 rounded transition-colors"
+                            >
+                              ← Back
+                            </button>
+                          )}
+                          {stage.id !== 'onboarding' && (
+                            <button
+                              data-testid={`move-forward-${candidate.id}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const currentIdx = STAGES.findIndex(s => s.id === stage.id);
+                                if (currentIdx < STAGES.length - 1) {
+                                  handleStageChange(candidate.id, STAGES[currentIdx + 1].id);
+                                }
+                              }}
+                              className="text-xs px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded transition-colors"
+                            >
+                              Forward →
+                            </button>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <Dialog open={showUpload} onOpenChange={setShowUpload}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Upload Resume</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="resume-file">Select PDF or DOCX file</Label>
+              <Input
+                id="resume-file"
+                data-testid="resume-file-input"
+                type="file"
+                accept=".pdf,.docx"
+                onChange={handleUploadResume}
+                disabled={uploading}
+              />
+            </div>
+            {uploading && <p className="text-sm text-slate-600">Parsing resume...</p>}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showAddCandidate} onOpenChange={setShowAddCandidate}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Candidate Manually</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="name">Name</Label>
+              <Input
+                id="name"
+                data-testid="candidate-name-input"
+                value={newCandidate.name}
+                onChange={(e) => setNewCandidate({ ...newCandidate, name: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                data-testid="candidate-email-input"
+                type="email"
+                value={newCandidate.email}
+                onChange={(e) => setNewCandidate({ ...newCandidate, email: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label htmlFor="phone">Phone</Label>
+              <Input
+                id="phone"
+                data-testid="candidate-phone-input"
+                value={newCandidate.phone}
+                onChange={(e) => setNewCandidate({ ...newCandidate, phone: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label htmlFor="skills">Skills (comma separated)</Label>
+              <Input
+                id="skills"
+                data-testid="candidate-skills-input"
+                placeholder="Python, React, MongoDB"
+                value={newCandidate.skills}
+                onChange={(e) => setNewCandidate({ ...newCandidate, skills: e.target.value })}
+              />
+            </div>
+            <Button 
+              data-testid="submit-candidate-btn"
+              onClick={handleAddCandidate}
+              className="w-full bg-[#1e1b4b] hover:bg-[#312e81]"
+            >
+              Add Candidate
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
