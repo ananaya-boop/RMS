@@ -62,6 +62,33 @@ export default function WithdrawalsPage({ user, onLogout }) {
     }
   };
 
+  const handleApproveWithdrawal = async (withdrawalId, purgeImmediately) => {
+    const confirmMessage = purgeImmediately
+      ? 'This will PERMANENTLY DELETE all candidate data. Are you sure you want to approve this withdrawal?'
+      : 'This will keep the candidate data in talent pool for 6 months. Approve withdrawal?';
+    
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
+
+    setApproving(withdrawalId);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.post(
+        `${API}/withdrawal-requests/${withdrawalId}/approve`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` }}
+      );
+      
+      toast.success(response.data.message);
+      fetchWithdrawalRequests(); // Refresh list
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to approve withdrawal');
+    } finally {
+      setApproving(null);
+    }
+  };
+
   return (
     <div className="flex h-screen bg-slate-50">
       <Sidebar user={user} onLogout={onLogout} activePage="withdrawals" />
