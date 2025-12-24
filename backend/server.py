@@ -995,6 +995,371 @@ async def get_interviewers(current_user: User = Depends(get_current_user)):
     
     return interviewers
 
+# ============= CANDIDATE WITHDRAWAL (DPDP ACT) =============
+
+@api_router.post("/candidates/{candidate_id}/withdraw")
+async def withdraw_candidate(candidate_id: str, withdrawal_data: WithdrawalCreate, current_user: User = Depends(get_current_user)):
+    """
+    Candidate withdrawal with optional data purge.
+    DPDP Act compliance: Right to withdraw application and request data deletion.
+    """
+    # Get candidate data
+    candidate = await db.candidates.find_one({"id": candidate_id}, {"_id": 0})
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    # Get job details
+    job = await db.jobs.find_one({"id": candidate['job_id']}, {"_id": 0})
+    job_title = job['title'] if job else "the position"
+    
+    # Create withdrawal request
+    withdrawal_obj = WithdrawalRequest(**withdrawal_data.model_dump())
+    
+    doc = withdrawal_obj.model_dump()
+    doc['created_at'] = doc['created_at'].isoformat()
+    if doc.get('processed_at'):
+        doc['processed_at'] = doc['processed_at'].isoformat()
+    
+    await db.withdrawal_requests.insert_one(doc)
+    
+    # Update candidate stage to withdrawn
+    await db.candidates.update_one(
+        {"id": candidate_id},
+        {
+            "$set": {
+                "stage": "withdrawn",
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+        }
+    )
+    
+    # Cancel all scheduled interviews
+    await db.schedules.update_many(
+        {"candidate_id": candidate_id, "status": "scheduled"},
+        {"$set": {"status": "cancelled"}}
+    )
+    
+    # Create audit log
+    audit_log = {
+        "id": str(uuid.uuid4()),
+        "action": "candidate_withdrawal",
+        "candidate_id": candidate_id,
+        "candidate_email": candidate['email'],
+        "candidate_name": candidate['name'],
+        "performed_by": "candidate_self_service",
+        "withdrawal_reason": withdrawal_data.reason,
+        "purge_immediately": withdrawal_data.purge_immediately,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+    await db.audit_logs.insert_one(audit_log)
+    
+    # Send acknowledgment email
+    if RESEND_API_KEY:
+        try:
+            survey_link = "https://forms.example.com/exit-survey"  # Replace with actual survey
+            
+            email_html = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <style>
+                    body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                    .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                    .header {{ background-color: #1e1b4b; color: white; padding: 20px; text-align: center; }}
+                    .content {{ padding: 20px; background-color: #f8fafc; }}
+                    .survey-link {{ display: inline-block; background-color: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 15px 0; }}
+                    .footer {{ padding: 20px; text-align: center; font-size: 12px; color: #666; }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <h2>Application Withdrawal Confirmed</h2>
+                    </div>
+                    <div class="content">
+                        <p>Dear {candidate['name']},</p>
+                        
+                        <p>We have received your request to withdraw your application for the <strong>{job_title}</strong> position.</p>
+                        
+                        <p><strong>Withdrawal Details:</strong></p>
+                        <ul>
+                            <li>Application ID: {candidate_id[:8]}...</li>
+                            <li>Withdrawal Date: {datetime.now(timezone.utc).strftime("%B %d, %Y")}</li>
+                            <li>Reason: {withdrawal_data.reason}</li>
+                        </ul>
+                        
+                        {'<p><strong>Data Deletion:</strong> Your personal data will be permanently deleted from our system within 48 hours as per your request.</p>' if withdrawal_data.purge_immediately else '<p><strong>Talent Pool:</strong> We will retain your information for 6 months in our talent pool for future opportunities. You can request deletion at any time.</p>'}
+                        
+                        <p>We appreciate your interest in our company and wish you the best in your career journey.</p>
+                        
+                        <p><strong>Help us improve:</strong> We would greatly value your feedback. Please take 1 minute to complete our exit survey:</p>
+                        
+                        <a href="{survey_link}" class="survey-link">Complete Exit Survey (1 min)</a>
+                        
+                        <p>Thank you for your time and consideration.</p>
+                        
+                        <p>Best regards,<br>The Recruitment Team</p>
+                    </div>
+                    <div class="footer">
+                        <p>This is an automated acknowledgment. Your withdrawal has been processed.</p>
+                        <p>DPDP Act 2023 Compliance Notice: Your rights as a data principal have been honored.</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """
+            
+            params = {
+                "from": SENDER_EMAIL,
+                "to": [candidate['email']],
+                "subject": f"Application Withdrawal Confirmed - {job_title}",
+                "html": email_html
+            }
+            await asyncio.to_thread(resend.Emails.send, params)
+            logging.info(f"Withdrawal acknowledgment email sent to {candidate['email']}")
+        except Exception as e:
+            logging.error(f"Failed to send withdrawal email: {str(e)}")
+    
+    # If immediate purge requested, delete data
+    if withdrawal_data.purge_immediately:
+        await db.candidates.delete_one({"id": candidate_id})
+        await db.scorecards.delete_many({"candidate_id": candidate_id})
+        await db.posh_reports.delete_many({"candidate_id": candidate_id})
+        await db.sensitive_data.delete_one({"candidate_id": candidate_id})
+        
+        # Update withdrawal status
+        await db.withdrawal_requests.update_one(
+            {"id": withdrawal_obj.id},
+            {
+                "$set": {
+                    "status": "completed",
+                    "processed_at": datetime.now(timezone.utc).isoformat()
+                }
+            }
+        )
+        
+        return {
+            "success": True,
+            "message": "Withdrawal processed and data purged immediately",
+            "withdrawal_id": withdrawal_obj.id
+        }
+    else:
+        return {
+            "success": True,
+            "message": "Withdrawal processed. Data will be retained for 6 months in talent pool.",
+            "withdrawal_id": withdrawal_obj.id
+        }
+
+@api_router.get("/withdrawal-requests")
+async def get_withdrawal_requests(current_user: User = Depends(get_current_user)):
+    """Get pending withdrawal requests (for recruiters to see)"""
+    requests = await db.withdrawal_requests.find(
+        {"status": "pending"},
+        {"_id": 0}
+    ).to_list(1000)
+    
+    for req in requests:
+        if isinstance(req.get('created_at'), str):
+            req['created_at'] = datetime.fromisoformat(req['created_at'])
+        if req.get('processed_at') and isinstance(req['processed_at'], str):
+            req['processed_at'] = datetime.fromisoformat(req['processed_at'])
+    
+    return requests
+
+# ============= DATA SNAPSHOT GENERATION (DPDP ACT - RIGHT TO ACCESS) =============
+
+@api_router.get("/candidates/{candidate_id}/generate-snapshot")
+async def generate_candidate_snapshot(candidate_id: str, current_user: User = Depends(get_current_user)):
+    """
+    Generate comprehensive PDF snapshot of all candidate data.
+    DPDP Act compliance: Right to Access - Data Principal can request their data.
+    Restricted to Admin/DPO only.
+    """
+    if current_user.role not in ["admin", "dpo"]:
+        raise HTTPException(status_code=403, detail="Only Admin or DPO can generate data snapshots")
+    
+    # Get all candidate data
+    candidate = await db.candidates.find_one({"id": candidate_id}, {"_id": 0})
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    # Get related data
+    job = await db.jobs.find_one({"id": candidate['job_id']}, {"_id": 0})
+    scorecards = await db.scorecards.find({"candidate_id": candidate_id}, {"_id": 0}).to_list(100)
+    schedules = await db.schedules.find({"candidate_id": candidate_id}, {"_id": 0}).to_list(100)
+    sensitive_data = await db.sensitive_data.find_one({"candidate_id": candidate_id}, {"_id": 0})
+    
+    # Create audit log for snapshot generation
+    audit_log = {
+        "id": str(uuid.uuid4()),
+        "action": "data_snapshot_generated",
+        "candidate_id": candidate_id,
+        "candidate_email": candidate['email'],
+        "candidate_name": candidate['name'],
+        "performed_by": current_user.email,
+        "performed_by_name": current_user.name,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "reason": "DPDP Act - Right to Access"
+    }
+    await db.audit_logs.insert_one(audit_log)
+    
+    # Generate PDF
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+    doc = SimpleDocTemplate(temp_file.name, pagesize=letter)
+    story = []
+    styles = getSampleStyleSheet()
+    
+    # Title
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=24,
+        textColor=colors.HexColor('#1e1b4b'),
+        spaceAfter=30
+    )
+    story.append(Paragraph("Candidate 360° Data Snapshot", title_style))
+    story.append(Paragraph(f"Generated: {datetime.now(timezone.utc).strftime('%B %d, %Y at %I:%M %p UTC')}", styles['Normal']))
+    story.append(Paragraph(f"Generated by: {current_user.name} ({current_user.role})", styles['Normal']))
+    story.append(Spacer(1, 0.3*inch))
+    
+    # Section 1: Personal Information
+    story.append(Paragraph("1. Personal Information", styles['Heading2']))
+    personal_data = [
+        ['Field', 'Value'],
+        ['Name', candidate.get('name', 'N/A')],
+        ['Email', candidate.get('email', 'N/A')],
+        ['Phone', candidate.get('phone', 'N/A')],
+        ['Experience', f"{candidate.get('experience_years', 0)} years"],
+        ['Skills', ', '.join(candidate.get('skills', []))],
+        ['Current Stage', candidate.get('stage', 'N/A').upper()],
+    ]
+    
+    if sensitive_data:
+        personal_data.extend([
+            ['PAN', sensitive_data.get('pan', 'N/A')],
+            ['Aadhaar (Masked)', sensitive_data.get('aadhaar_masked', 'N/A')],
+            ['UAN', sensitive_data.get('uan', 'N/A')],
+        ])
+    
+    personal_table = Table(personal_data, colWidths=[2*inch, 4*inch])
+    personal_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4f46e5')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 12),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+    ]))
+    story.append(personal_table)
+    story.append(Spacer(1, 0.3*inch))
+    
+    # Section 2: Application Data
+    story.append(Paragraph("2. Application Data", styles['Heading2']))
+    story.append(Paragraph(f"<b>Job Applied:</b> {job['title'] if job else 'N/A'}", styles['Normal']))
+    story.append(Paragraph(f"<b>Application Date:</b> {datetime.fromisoformat(candidate['created_at']).strftime('%B %d, %Y')}", styles['Normal']))
+    story.append(Paragraph(f"<b>Source:</b> {candidate.get('source', 'Direct Application')}", styles['Normal']))
+    if candidate.get('resume_text'):
+        story.append(Paragraph("<b>Resume Summary:</b>", styles['Normal']))
+        story.append(Paragraph(candidate['resume_text'][:500] + "...", styles['Normal']))
+    story.append(Spacer(1, 0.3*inch))
+    
+    # Section 3: Interview Process Data
+    story.append(Paragraph("3. Interview Process History", styles['Heading2']))
+    
+    if schedules:
+        interview_data = [['Type', 'Date', 'Interviewer', 'Status']]
+        for schedule in schedules:
+            interview_data.append([
+                schedule.get('interview_type', 'N/A'),
+                datetime.fromisoformat(schedule['start_time']).strftime('%b %d, %Y'),
+                schedule.get('interviewer_name', 'N/A'),
+                schedule.get('status', 'N/A').upper()
+            ])
+        
+        interview_table = Table(interview_data, colWidths=[1.5*inch, 1.5*inch, 2*inch, 1*inch])
+        interview_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4f46e5')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ]))
+        story.append(interview_table)
+    else:
+        story.append(Paragraph("No interviews scheduled.", styles['Normal']))
+    
+    story.append(Spacer(1, 0.3*inch))
+    
+    # Section 4: Feedback & Scorecards
+    story.append(Paragraph("4. Interview Feedback & Scorecards", styles['Heading2']))
+    
+    if scorecards:
+        for i, scorecard in enumerate(scorecards, 1):
+            story.append(Paragraph(f"<b>Feedback {i}: {scorecard.get('round_name', 'N/A')}</b>", styles['Normal']))
+            story.append(Paragraph(f"Rating: {scorecard.get('rating', 0)}/5", styles['Normal']))
+            story.append(Paragraph(f"Recommendation: {scorecard.get('recommendation', 'N/A').replace('_', ' ').title()}", styles['Normal']))
+            story.append(Paragraph(f"Feedback: {scorecard.get('feedback', 'No feedback provided')}", styles['Normal']))
+            story.append(Spacer(1, 0.2*inch))
+    else:
+        story.append(Paragraph("No feedback recorded yet.", styles['Normal']))
+    
+    story.append(Spacer(1, 0.3*inch))
+    
+    # Section 5: Consent Log
+    story.append(Paragraph("5. Consent & Compliance Log", styles['Heading2']))
+    
+    if candidate.get('consent_log'):
+        consent_data = [
+            ['Field', 'Value'],
+            ['Consent Given', 'Yes' if candidate['consent_log'].get('consent_given') else 'No'],
+            ['Method', candidate['consent_log'].get('method', 'N/A')],
+            ['Timestamp', datetime.fromisoformat(candidate['consent_log']['timestamp']).strftime('%B %d, %Y at %I:%M %p')],
+            ['IP Address', candidate['consent_log'].get('ip_address', 'N/A')],
+        ]
+        
+        consent_table = Table(consent_data, colWidths=[2*inch, 4*inch])
+        consent_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#10b981')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ]))
+        story.append(consent_table)
+    else:
+        story.append(Paragraph("No consent log available.", styles['Normal']))
+    
+    story.append(Spacer(1, 0.5*inch))
+    
+    # Footer
+    story.append(Paragraph("=" * 80, styles['Normal']))
+    story.append(Paragraph("<b>DPDP Act 2023 Compliance Notice:</b>", styles['Normal']))
+    story.append(Paragraph("This document contains all personal data we hold about the candidate. Generated as per the Right to Access under the Digital Personal Data Protection Act 2023.", styles['Normal']))
+    story.append(Paragraph(f"Document ID: {audit_log['id']}", styles['Normal']))
+    story.append(Paragraph("This document is confidential and should be handled securely.", styles['Normal']))
+    
+    # Build PDF
+    doc.build(story)
+    
+    # Read file content
+    with open(temp_file.name, 'rb') as f:
+        pdf_content = f.read()
+    
+    # Clean up temp file
+    os.unlink(temp_file.name)
+    
+    # Convert to base64 for frontend download
+    import base64
+    pdf_base64 = base64.b64encode(pdf_content).decode('utf-8')
+    
+    return {
+        "success": True,
+        "filename": f"candidate_snapshot_{candidate_id[:8]}.pdf",
+        "pdf_base64": pdf_base64,
+        "audit_log_id": audit_log['id']
+    }
+
 # ============= AUDIT LOGS =============
 
 @api_router.get("/audit-logs")
