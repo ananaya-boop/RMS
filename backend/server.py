@@ -182,6 +182,37 @@ class POSHReportCreate(BaseModel):
     incident_type: str
     description: str
 
+class InterviewSchedule(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    candidate_id: str
+    job_id: str
+    interviewer_user_id: str
+    interviewer_name: str
+    interviewer_email: EmailStr
+    interview_type: str  # Screening, Technical, HR Round, Final
+    start_time: datetime
+    end_time: datetime
+    duration_minutes: int
+    meeting_url: Optional[str] = None
+    status: str = "scheduled"  # scheduled, completed, cancelled
+    include_resume: bool = True
+    include_scorecard_link: bool = True
+    created_by: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class ScheduleCreate(BaseModel):
+    candidate_id: str
+    job_id: str
+    interviewer_user_id: str
+    interview_type: str
+    start_time: datetime
+    duration_minutes: int
+    meeting_url: Optional[str] = None
+    include_resume: bool = True
+    include_scorecard_link: bool = True
+
 class EmailRequest(BaseModel):
     recipient_email: EmailStr
     subject: str
