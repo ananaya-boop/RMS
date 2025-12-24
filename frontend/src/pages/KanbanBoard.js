@@ -221,17 +221,9 @@ export default function KanbanBoard({ user, onLogout }) {
                 ))}
               </select>
               <Button 
-                data-testid="upload-resume-btn"
-                onClick={() => setShowUpload(true)}
-                className="bg-[#1e1b4b] hover:bg-[#312e81]"
-              >
-                <Upload className="w-4 h-4 mr-2" />
-                Upload Resume
-              </Button>
-              <Button 
                 data-testid="add-candidate-btn"
                 onClick={() => setShowAddCandidate(true)}
-                variant="outline"
+                className="bg-[#1e1b4b] hover:bg-[#312e81]"
               >
                 <Plus className="w-4 h-4 mr-2" />
                 Add Candidate
