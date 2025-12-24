@@ -59,6 +59,9 @@ function App() {
         <Route path="/compliance" element={
           user ? <ComplianceDashboard user={user} onLogout={handleLogout} /> : <Navigate to="/login" />
         } />
+        <Route path="/withdrawals" element={
+          user ? <WithdrawalsPage user={user} onLogout={handleLogout} /> : <Navigate to="/login" />
+        } />
       </Routes>
     </BrowserRouter>
   );
