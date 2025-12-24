@@ -158,6 +158,35 @@ export default function CandidateProfile({ user, onLogout }) {
     }
   };
 
+  const handleGenerateSnapshot = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`${API}/candidates/${candidateId}/generate-snapshot`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      // Convert base64 to blob and download
+      const byteCharacters = atob(response.data.pdf_base64);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: 'application/pdf' });
+      
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = response.data.filename;
+      link.click();
+      window.URL.revokeObjectURL(url);
+      
+      toast.success('Data snapshot generated and downloaded');
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to generate snapshot');
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex h-screen bg-slate-50">
