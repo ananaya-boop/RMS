@@ -305,6 +305,14 @@ export default function KanbanBoard({ user, onLogout }) {
         </div>
       </div>
 
+      {showDeclinedSidebar && (
+        <DeclinedSidebar 
+          declinedCandidates={getDeclinedCandidates()}
+          onClose={() => setShowDeclinedSidebar(false)}
+          onRefresh={fetchCandidates}
+        />
+      )}
+
       <Dialog open={showUpload} onOpenChange={setShowUpload}>
         <DialogContent>
           <DialogHeader>
