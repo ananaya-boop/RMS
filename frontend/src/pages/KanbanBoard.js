@@ -149,6 +149,24 @@ export default function KanbanBoard({ user, onLogout }) {
     return candidates.filter(c => c.stage === stage);
   };
 
+  const getDeclinedCandidates = () => {
+    return candidates.filter(c => c.stage === 'declined');
+  };
+
+  const handleDeclineCandidate = async (candidateId) => {
+    try {
+      const token = localStorage.getItem('token');
+      await axios.put(`${API}/candidates/${candidateId}/stage`, 
+        { stage: 'declined' },
+        { headers: { Authorization: `Bearer ${token}` }}
+      );
+      toast.success('Candidate moved to Declined sidebar');
+      fetchCandidates();
+    } catch (error) {
+      toast.error('Failed to decline candidate');
+    }
+  };
+
   return (
     <div className="flex h-screen bg-slate-50">
       <Sidebar user={user} onLogout={onLogout} activePage="kanban" />
