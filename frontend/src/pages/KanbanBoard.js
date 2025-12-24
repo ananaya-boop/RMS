@@ -89,6 +89,7 @@ export default function KanbanBoard({ user, onLogout }) {
     }
 
     setUploading(true);
+    setResumeFile(file);
     const formData = new FormData();
     formData.append('file', file);
 
@@ -104,17 +105,37 @@ export default function KanbanBoard({ user, onLogout }) {
           }
         }
       );
-      toast.success('Resume uploaded and parsed successfully!');
-      fetchCandidates();
-      setShowUpload(false);
+      
+      // Auto-fill form with parsed data
+      const parsed = response.data.parsed_data;
+      setParsedData(parsed);
+      setNewCandidate({
+        name: parsed.name || '',
+        email: parsed.email || '',
+        phone: parsed.phone || '',
+        skills: parsed.skills ? parsed.skills.join(', ') : '',
+        experience_years: 0
+      });
+      
+      toast.success('Resume parsed successfully! Review and edit the details below.');
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to upload resume');
+      toast.error(error.response?.data?.detail || 'Failed to parse resume');
+      setResumeFile(null);
     } finally {
       setUploading(false);
     }
   };
 
   const handleAddCandidate = async () => {
+    // If resume was uploaded, the candidate was already created during upload
+    if (parsedData) {
+      toast.success('Candidate from resume already added!');
+      fetchCandidates();
+      handleCloseAddDialog();
+      return;
+    }
+
+    // Manual candidate creation
     try {
       const token = localStorage.getItem('token');
       await axios.post(`${API}/candidates`, {
@@ -126,11 +147,17 @@ export default function KanbanBoard({ user, onLogout }) {
       });
       toast.success('Candidate added successfully!');
       fetchCandidates();
-      setShowAddCandidate(false);
-      setNewCandidate({ name: '', email: '', phone: '', skills: '', experience_years: 0 });
+      handleCloseAddDialog();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to add candidate');
     }
+  };
+
+  const handleCloseAddDialog = () => {
+    setShowAddCandidate(false);
+    setResumeFile(null);
+    setParsedData(null);
+    setNewCandidate({ name: '', email: '', phone: '', skills: '', experience_years: 0 });
   };
 
   const handleStageChange = async (candidateId, newStage) => {
