@@ -8,8 +8,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import Sidebar from '@/components/Sidebar';
 import DeclinedSidebar from '@/components/DeclinedSidebar';
+import OnboardingConfirmationModal from '@/components/OnboardingConfirmationModal';
 import { toast } from 'sonner';
-import { Plus, Upload, XCircle } from 'lucide-react';
+import { Plus, XCircle } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
