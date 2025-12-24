@@ -6,6 +6,7 @@ import KanbanBoard from "./pages/KanbanBoard";
 import CandidateProfile from "./pages/CandidateProfile";
 import JobsManagement from "./pages/JobsManagement";
 import ComplianceDashboard from "./pages/ComplianceDashboard";
+import WithdrawalsPage from "./pages/WithdrawalsPage";
 import "./App.css";
 
 function App() {
