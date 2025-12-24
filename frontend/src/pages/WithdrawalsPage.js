@@ -12,6 +12,7 @@ const API = `${BACKEND_URL}/api`;
 export default function WithdrawalsPage({ user, onLogout }) {
   const [withdrawalRequests, setWithdrawalRequests] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [approving, setApproving] = useState(null);
 
   useEffect(() => {
     fetchWithdrawalRequests();
