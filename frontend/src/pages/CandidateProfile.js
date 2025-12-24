@@ -536,6 +536,18 @@ export default function CandidateProfile({ user, onLogout }) {
           </div>
         </DialogContent>
       </Dialog>
+      
+      {showSchedule && candidate && (
+        <ScheduleInterviewSidebar
+          candidate={candidate}
+          jobId={candidate.job_id}
+          onClose={() => setShowSchedule(false)}
+          onScheduled={() => {
+            fetchSchedules();
+            toast.success('Interview scheduled successfully');
+          }}
+        />
+      )}
     </div>
   );
 }
