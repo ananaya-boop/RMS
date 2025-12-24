@@ -601,6 +601,17 @@ export default function CandidateProfile({ user, onLogout }) {
           }}
         />
       )}
+
+      {showWithdrawal && candidate && (
+        <WithdrawalSidebar
+          candidate={candidate}
+          onClose={() => setShowWithdrawal(false)}
+          onWithdrawn={() => {
+            fetchCandidate();
+            toast.success('Candidate withdrawal processed');
+          }}
+        />
+      )}
     </div>
   );
 }
