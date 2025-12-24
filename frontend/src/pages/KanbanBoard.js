@@ -164,6 +164,15 @@ export default function KanbanBoard({ user, onLogout }) {
   };
 
   const handleStageChange = async (candidateId, newStage) => {
+    // If moving to onboarding, show confirmation modal
+    if (newStage === 'onboarding') {
+      const candidate = candidates.find(c => c.id === candidateId);
+      setCandidateToOnboard(candidate);
+      setShowOnboardingModal(true);
+      return;
+    }
+
+    // For other stages, update directly
     try {
       const token = localStorage.getItem('token');
       await axios.put(`${API}/candidates/${candidateId}/stage`, 
@@ -174,6 +183,23 @@ export default function KanbanBoard({ user, onLogout }) {
       fetchCandidates();
     } catch (error) {
       toast.error('Failed to update stage');
+    }
+  };
+
+  const handleOnboardingSuccess = async () => {
+    if (!candidateToOnboard) return;
+    
+    // Update candidate stage to onboarded
+    try {
+      const token = localStorage.getItem('token');
+      await axios.put(`${API}/candidates/${candidateToOnboard.id}/stage`, 
+        { stage: 'onboarding' },
+        { headers: { Authorization: `Bearer ${token}` }}
+      );
+      fetchCandidates();
+      setCandidateToOnboard(null);
+    } catch (error) {
+      console.error('Error updating stage:', error);
     }
   };
 
