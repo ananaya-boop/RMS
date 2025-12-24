@@ -71,6 +71,18 @@ export default function CandidateProfile({ user, onLogout }) {
     }
   };
 
+  const fetchSchedules = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`${API}/schedules?candidate_id=${candidateId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setSchedules(response.data);
+    } catch (error) {
+      console.error('Error fetching schedules:', error);
+    }
+  };
+
   const handleSubmitScorecard = async () => {
     try {
       const token = localStorage.getItem('token');
