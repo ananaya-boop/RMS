@@ -213,6 +213,21 @@ class ScheduleCreate(BaseModel):
     include_resume: bool = True
     include_scorecard_link: bool = True
 
+class WithdrawalRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    candidate_id: str
+    reason: str  # Better Offer, Process Speed, Role Mismatch, Personal Reasons
+    purge_immediately: bool = False
+    status: str = "pending"  # pending, completed
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    processed_at: Optional[datetime] = None
+
+class WithdrawalCreate(BaseModel):
+    candidate_id: str
+    reason: str
+    purge_immediately: bool = False
+
 class EmailRequest(BaseModel):
     recipient_email: EmailStr
     subject: str
