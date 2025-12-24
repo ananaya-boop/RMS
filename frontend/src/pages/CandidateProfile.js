@@ -20,8 +20,10 @@ export default function CandidateProfile({ user, onLogout }) {
   const navigate = useNavigate();
   const [candidate, setCandidate] = useState(null);
   const [scorecards, setScorecards] = useState([]);
+  const [schedules, setSchedules] = useState([]);
   const [showScorecard, setShowScorecard] = useState(false);
   const [showPOSH, setShowPOSH] = useState(false);
+  const [showSchedule, setShowSchedule] = useState(false);
   const [loading, setLoading] = useState(true);
   const [scorecard, setScorecard] = useState({
     round_name: '',
