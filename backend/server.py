@@ -499,17 +499,161 @@ async def upload_resume(file: UploadFile = File(...), job_id: str = "", current_
         }
     }
 
+@api_router.post("/candidates/{candidate_id}/reject-and-purge")
+async def reject_and_purge_candidate(candidate_id: str, current_user: User = Depends(get_current_user)):
+    """
+    Final rejection with data purge and automated email notification.
+    This is called after the recruiter confirms rejection from the declined sidebar.
+    """
+    # Get candidate data before deletion for email
+    candidate = await db.candidates.find_one({"id": candidate_id}, {"_id": 0})
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    # Get job details for email
+    job = await db.jobs.find_one({"id": candidate['job_id']}, {"_id": 0})
+    job_title = job['title'] if job else "the position"
+    
+    # Create audit log entry BEFORE deletion
+    audit_log = {
+        "id": str(uuid.uuid4()),
+        "action": "candidate_purged",
+        "candidate_id": candidate_id,
+        "candidate_email": candidate['email'],
+        "candidate_name": candidate['name'],
+        "performed_by": current_user.email,
+        "performed_by_name": current_user.name,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "reason": "Rejected by recruiter"
+    }
+    await db.audit_logs.insert_one(audit_log)
+    
+    # Send rejection email if Resend is configured
+    if RESEND_API_KEY:
+        email_html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                .header {{ background-color: #1e1b4b; color: white; padding: 20px; text-align: center; }}
+                .content {{ padding: 20px; background-color: #f8fafc; }}
+                .footer {{ padding: 20px; text-align: center; font-size: 12px; color: #666; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h2>Application Status Update</h2>
+                </div>
+                <div class="content">
+                    <p>Dear {candidate['name']},</p>
+                    
+                    <p>Thank you for your interest in the <strong>{job_title}</strong> position and for taking the time to apply with us.</p>
+                    
+                    <p>After careful consideration, we regret to inform you that we will not be moving forward with your application at this time. This decision was not easy, as we received many qualified applications.</p>
+                    
+                    <p>We truly appreciate the time and effort you invested in the application process.</p>
+                    
+                    <p><strong>Privacy Notice:</strong> In compliance with the DPDP Act 2023 and our commitment to protecting your privacy, we have permanently deleted all your personal information from our recruitment system, including your resume and contact details.</p>
+                    
+                    <p>We wish you the very best in your job search and future career endeavors.</p>
+                    
+                    <p>Best regards,<br>The Recruitment Team</p>
+                </div>
+                <div class="footer">
+                    <p>This is an automated message. Please do not reply to this email.</p>
+                    <p>Your data has been deleted from our system as per DPDP Act 2023 compliance.</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        try:
+            params = {
+                "from": SENDER_EMAIL,
+                "to": [candidate['email']],
+                "subject": f"Update regarding your application for {job_title}",
+                "html": email_html
+            }
+            await asyncio.to_thread(resend.Emails.send, params)
+            logging.info(f"Rejection email sent to {candidate['email']}")
+        except Exception as e:
+            logging.error(f"Failed to send rejection email: {str(e)}")
+            # Continue with deletion even if email fails
+    
+    # Hard delete candidate and all related data
+    await db.candidates.delete_one({"id": candidate_id})
+    await db.scorecards.delete_many({"candidate_id": candidate_id})
+    await db.posh_reports.delete_many({"candidate_id": candidate_id})
+    await db.sensitive_data.delete_one({"candidate_id": candidate_id})
+    
+    return {
+        "success": True,
+        "message": "Candidate rejected, data purged, and notification sent",
+        "audit_log_id": audit_log['id']
+    }
+
+@api_router.post("/candidates/{candidate_id}/restore-to-sourced")
+async def restore_candidate_to_sourced(candidate_id: str, current_user: User = Depends(get_current_user)):
+    """Restore a declined candidate back to the Sourced stage"""
+    candidate = await db.candidates.find_one({"id": candidate_id}, {"_id": 0})
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    if candidate['stage'] != 'declined':
+        raise HTTPException(status_code=400, detail="Only declined candidates can be restored")
+    
+    # Update stage to sourced
+    stage_history = candidate.get('stage_history', [])
+    stage_history.append({
+        "stage": "sourced",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "updated_by": current_user.email,
+        "action": "restored_from_declined"
+    })
+    
+    await db.candidates.update_one(
+        {"id": candidate_id},
+        {
+            "$set": {
+                "stage": "sourced",
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "stage_history": stage_history
+            }
+        }
+    )
+    
+    return {"success": True, "message": "Candidate restored to Sourced stage"}
+
 @api_router.delete("/candidates/{candidate_id}/purge")
 async def purge_candidate(candidate_id: str, current_user: User = Depends(get_current_user)):
-    """DPDP Act - Right to Erasure"""
+    """DPDP Act - Right to Erasure (Direct purge without rejection flow)"""
     if current_user.role not in ["admin", "dpo"]:
         raise HTTPException(status_code=403, detail="Only Admin or DPO can purge data")
     
-    result = await db.candidates.delete_one({"id": candidate_id})
-    if result.deleted_count == 0:
+    candidate = await db.candidates.find_one({"id": candidate_id}, {"_id": 0})
+    if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
     
-    # Also delete related data
+    # Create audit log
+    audit_log = {
+        "id": str(uuid.uuid4()),
+        "action": "direct_purge",
+        "candidate_id": candidate_id,
+        "candidate_email": candidate['email'],
+        "candidate_name": candidate['name'],
+        "performed_by": current_user.email,
+        "performed_by_name": current_user.name,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "reason": "Admin/DPO direct purge (DPDP Act compliance)"
+    }
+    await db.audit_logs.insert_one(audit_log)
+    
+    # Delete candidate and related data
+    await db.candidates.delete_one({"id": candidate_id})
     await db.scorecards.delete_many({"candidate_id": candidate_id})
     await db.posh_reports.delete_many({"candidate_id": candidate_id})
     await db.sensitive_data.delete_one({"candidate_id": candidate_id})
