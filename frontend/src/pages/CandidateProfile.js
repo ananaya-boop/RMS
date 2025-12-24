@@ -8,8 +8,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import Sidebar from '@/components/Sidebar';
+import ScheduleInterviewSidebar from '@/components/ScheduleInterviewSidebar';
 import { toast } from 'sonner';
-import { ArrowLeft, AlertTriangle, Download, Trash2, Star } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, Download, Trash2, Star, Calendar as CalendarIcon } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
