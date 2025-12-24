@@ -1,34 +1,35 @@
-.App-logo {
-    height: 40vmin;
-    pointer-events: none;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-    .App-logo {
-        animation: App-logo-spin infinite 20s linear;
-    }
-}
-
-.App-header {
-    background-color: #0f0f10;
+/* Global App Styles */
+.App {
     min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-size: calc(10px + 2vmin);
-    color: white;
 }
 
-.App-link {
-    color: #61dafb;
+/* Privacy Shield Component */
+.privacy-shield {
+    backdrop-filter: blur(12px);
+    background: rgba(226, 232, 240, 0.5);
+    cursor: pointer;
+    transition: all 0.2s ease;
 }
 
-@keyframes App-logo-spin {
-    from {
-        transform: rotate(0deg);
-    }
-    to {
-        transform: rotate(360deg);
-    }
+.privacy-shield:hover {
+    background: rgba(226, 232, 240, 0.3);
+}
+
+/* Smooth transitions for interactive elements */
+button, .btn {
+    transition: background-color 0.2s ease, transform 0.1s ease, box-shadow 0.2s ease;
+}
+
+button:active, .btn:active {
+    transform: scale(0.95);
+}
+
+/* Card hover effects */
+.card-hover {
+    transition: box-shadow 0.3s ease, transform 0.2s ease;
+}
+
+.card-hover:hover {
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+    transform: translateY(-2px);
 }
