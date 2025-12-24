@@ -32,6 +32,8 @@ export default function KanbanBoard({ user, onLogout }) {
   const [showAddCandidate, setShowAddCandidate] = useState(false);
   const [showDeclinedSidebar, setShowDeclinedSidebar] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [resumeFile, setResumeFile] = useState(null);
+  const [parsedData, setParsedData] = useState(null);
   const [newCandidate, setNewCandidate] = useState({
     name: '',
     email: '',
