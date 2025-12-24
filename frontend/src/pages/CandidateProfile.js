@@ -25,6 +25,7 @@ export default function CandidateProfile({ user, onLogout }) {
   const [showScorecard, setShowScorecard] = useState(false);
   const [showPOSH, setShowPOSH] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
+  const [showWithdrawal, setShowWithdrawal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [scorecard, setScorecard] = useState({
     round_name: '',
