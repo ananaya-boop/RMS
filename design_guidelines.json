@@ -1,0 +1,173 @@
+{
+  "identity": {
+    "name": "E1 - The Anti-AI Designer",
+    "mission": "Create a 'Talent Cockpit' for Indian Corporate Hiring that blends Swiss precision with human warmth.",
+    "principles": [
+      "Fusion: Air Traffic Control aesthetics x Human Resources warmth",
+      "Density with Breath: High data density (Control Room) but with generous padding inside containers",
+      "Context is King: Light mode for clarity, Dark mode for power users",
+      "Privacy by Design: Visual masking for sensitive data (DPDP Act)"
+    ]
+  },
+  "typography": {
+    "fonts": {
+      "heading": "Manrope, sans-serif",
+      "body": "Inter, sans-serif",
+      "mono": "JetBrains Mono, monospace"
+    },
+    "usage": {
+      "h1": "text-4xl font-bold tracking-tight text-slate-900 dark:text-white",
+      "h2": "text-2xl font-semibold tracking-tight text-slate-800 dark:text-slate-100",
+      "h3": "text-xl font-medium text-slate-800 dark:text-slate-200",
+      "body": "text-sm leading-relaxed text-slate-600 dark:text-slate-400",
+      "caption": "text-xs font-medium uppercase tracking-wider text-slate-500",
+      "data": "font-mono text-sm text-slate-700 dark:text-slate-300"
+    }
+  },
+  "colors": {
+    "palette": {
+      "primary": {
+        "DEFAULT": "#1e1b4b",
+        "foreground": "#ffffff",
+        "hover": "#312e81"
+      },
+      "accent": {
+        "DEFAULT": "#4f46e5",
+        "foreground": "#ffffff",
+        "hover": "#4338ca"
+      },
+      "success": {
+        "DEFAULT": "#10b981",
+        "subtle": "#d1fae5"
+      },
+      "warning": {
+        "DEFAULT": "#f59e0b",
+        "subtle": "#fef3c7"
+      },
+      "destructive": {
+        "DEFAULT": "#e11d48",
+        "subtle": "#ffe4e6"
+      },
+      "background": {
+        "light": "#f8fafc",
+        "dark": "#0f172a"
+      },
+      "surface": {
+        "light": "#ffffff",
+        "dark": "#1e293b"
+      }
+    },
+    "gradients": {
+      "privacy_shield": "linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%)",
+      "active_stage": "linear-gradient(to right, #4f46e5, #6366f1)"
+    }
+  },
+  "layout": {
+    "spacing": {
+      "container_padding": "p-6 md:p-8 lg:p-12",
+      "section_gap": "gap-8",
+      "item_gap": "gap-4"
+    },
+    "grids": {
+      "dashboard": "grid grid-cols-1 md:grid-cols-4 gap-6",
+      "kanban": "flex gap-6 overflow-x-auto pb-8 snap-x",
+      "profile": "grid grid-cols-1 lg:grid-cols-12 gap-8"
+    },
+    "bento_modes": {
+      "control_room": {
+        "wrapper": "grid grid-cols-1 md:grid-cols-4 gap-4",
+        "hero_metric": "col-span-1 md:col-span-2 row-span-2",
+        "standard_metric": "col-span-1",
+        "list_view": "col-span-1 md:col-span-2 row-span-2"
+      }
+    }
+  },
+  "components": {
+    "overrides": {
+      "Card": {
+        "base": "rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950",
+        "header": "border-b border-slate-100 p-6 dark:border-slate-800",
+        "content": "p-6"
+      },
+      "Button": {
+        "primary": "bg-[#1e1b4b] hover:bg-[#312e81] text-white shadow-md transition-all active:scale-95",
+        "ghost": "hover:bg-slate-100 text-slate-700 dark:hover:bg-slate-800 dark:text-slate-300"
+      },
+      "Badge": {
+        "base": "rounded-md px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+        "variants": {
+          "hired": "bg-emerald-100 text-emerald-800 border-emerald-200",
+          "interview": "bg-amber-100 text-amber-800 border-amber-200",
+          "rejected": "bg-rose-100 text-rose-800 border-rose-200",
+          "new": "bg-blue-100 text-blue-800 border-blue-200"
+        }
+      }
+    },
+    "custom_ui": {
+      "privacy_shield": {
+        "description": "Blur overlay for sensitive fields (Caste, Religion, Age)",
+        "classes": "backdrop-blur-md bg-slate-200/50 cursor-pointer hover:bg-slate-200/30 transition-all flex items-center justify-center text-xs font-mono text-slate-500 border border-dashed border-slate-300 rounded"
+      },
+      "kanban_column": {
+        "base": "min-w-[320px] bg-slate-50/50 rounded-xl border border-slate-200/60 p-4 flex flex-col gap-3 h-full",
+        "header": "flex items-center justify-between mb-2 px-1"
+      }
+    }
+  },
+  "images": {
+    "avatars": [
+      {
+        "url": "https://images.pexels.com/photos/5301744/pexels-photo-5301744.jpeg",
+        "alt": "Indian Professional Male",
+        "category": "candidate"
+      },
+      {
+        "url": "https://images.pexels.com/photos/7581126/pexels-photo-7581126.jpeg",
+        "alt": "Indian Professional Female",
+        "category": "recruiter"
+      }
+    ],
+    "backgrounds": [
+      {
+        "url": "https://images.pexels.com/photos/6044841/pexels-photo-6044841.jpeg",
+        "alt": "Modern Office Blur",
+        "category": "login_bg"
+      }
+    ]
+  },
+  "compliance_ui": {
+    "dpdp_act": {
+      "consent_log": "Must display timestamp, IP, and method of consent for every candidate.",
+      "purge_button": "Destructive action with 2-step confirmation. Animation: 'Shredding' effect.",
+      "sensitive_data": "Fields like PAN, Aadhaar, Caste must be masked by default with 'Privacy Shield' component."
+    }
+  },
+  "instructions_to_main_agent": [
+    "1. THEME SETUP: Apply the 'colors' section to tailwind.config.js immediately.",
+    "2. LAYOUT: Use the 'Bento Control Room' grid for the Admin Dashboard.",
+    "3. KANBAN: Implement horizontal scrolling with 'snap-x' for the pipeline. Use the 'kanban_column' styles.",
+    "4. PRIVACY: Wrap all sensitive data fields (PAN, Aadhaar, Religion) in a component that implements the 'privacy_shield' style.",
+    "5. IMAGES: Use the provided Pexels URLs for avatars and login backgrounds. DO NOT use placeholders.",
+    "6. TESTIDS: Add data-testid to every interactive element (buttons, inputs, drag-handles)."
+  ],
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients",
+    "Don't make generic centered layouts, simplistic gradients, and uniform styling.",
+    "Create depth through layered design elements with z-index hierarchy",
+    "Use glass-morphism effects with backdrop filters (12-24px blur)",
+    "You MUST NOT apply universal transition. Eg: transition: all. This results in breaking transforms. Always add transitions for specific interactive elements like button, input excluding transforms",
+    "You MUST NOT center align the app container, ie do not add .App { text-align: center; } in the css file. This disrupts the human natural reading flow of text",
+    "Always use modern button styles like pill-shaped, or sharp button with interaction animations & color relevant to the app style",
+    "NEVER: use AI assistant Emoji characters like 🤖🧠💭💡🔮🎯📚🎭🎬🎪🎉🎊🎁🎀🎂🍰🎈🎨🎰💰💵💳🏦💎🪙💸🤑📊📈📉💹🔢🏆🥇 etc for icons.",
+    "Every interaction needs micro-animations - hover states, transitions, parallax effects, and entrance animations. Static = dead.",
+    "Use 2-3x more spacing than feels comfortable. Cramped designs look cheap.",
+    "Subtle grain textures, noise overlays, custom cursors, selection states, and loading animations: separates good from extraordinary.",
+    "Main agent relies on these image URLs. Missing categories (especially sponsor logos) = main agent will use placeholder text which is FORBIDDEN",
+    "Prioritize using pre-existing components from src/components/ui when applicable",
+    "Create new components that match the style and conventions of existing components when needed",
+    "Examine existing components to understand the project's component patterns before creating new ones",
+    "Components MUST use named exports (export const ComponentName = ...)",
+    "Pages MUST use default exports (export default function PageName() {...})",
+    "Use sonner for toasts. Sonner component are located in /app/src/components/ui/sonner.tsx"
+  ]
+}
