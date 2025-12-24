@@ -762,6 +762,218 @@ async def get_posh_reports(current_user: User = Depends(get_current_user)):
     
     return reports
 
+# ============= INTERVIEW SCHEDULING =============
+
+@api_router.post("/schedules", response_model=InterviewSchedule)
+async def create_interview_schedule(schedule_data: ScheduleCreate, current_user: User = Depends(get_current_user)):
+    """Schedule an interview with conflict detection and automated notifications"""
+    
+    # Get interviewer details
+    interviewer = await db.users.find_one({"id": schedule_data.interviewer_user_id}, {"_id": 0})
+    if not interviewer:
+        raise HTTPException(status_code=404, detail="Interviewer not found")
+    
+    # Get candidate details
+    candidate = await db.candidates.find_one({"id": schedule_data.candidate_id}, {"_id": 0})
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    # Get job details
+    job = await db.jobs.find_one({"id": schedule_data.job_id}, {"_id": 0})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    # Validate time is not in the past
+    if schedule_data.start_time < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Cannot schedule interviews in the past")
+    
+    # Calculate end time
+    end_time = schedule_data.start_time + timedelta(minutes=schedule_data.duration_minutes)
+    
+    # Check for interviewer conflicts
+    conflicts = await db.schedules.find({
+        "interviewer_user_id": schedule_data.interviewer_user_id,
+        "status": "scheduled",
+        "$or": [
+            {
+                "start_time": {"$lte": schedule_data.start_time.isoformat()},
+                "end_time": {"$gte": schedule_data.start_time.isoformat()}
+            },
+            {
+                "start_time": {"$lte": end_time.isoformat()},
+                "end_time": {"$gte": end_time.isoformat()}
+            },
+            {
+                "start_time": {"$gte": schedule_data.start_time.isoformat()},
+                "end_time": {"$lte": end_time.isoformat()}
+            }
+        ]
+    }).to_list(10)
+    
+    if conflicts:
+        raise HTTPException(
+            status_code=409, 
+            detail=f"Interviewer {interviewer['name']} is already booked during this time slot"
+        )
+    
+    # Create schedule object
+    schedule_obj = InterviewSchedule(
+        **schedule_data.model_dump(),
+        interviewer_name=interviewer['name'],
+        interviewer_email=interviewer['email'],
+        end_time=end_time,
+        created_by=current_user.id
+    )
+    
+    doc = schedule_obj.model_dump()
+    doc['start_time'] = doc['start_time'].isoformat()
+    doc['end_time'] = doc['end_time'].isoformat()
+    doc['created_at'] = doc['created_at'].isoformat()
+    doc['updated_at'] = doc['updated_at'].isoformat()
+    
+    await db.schedules.insert_one(doc)
+    
+    # Send confirmation email to candidate
+    if RESEND_API_KEY:
+        try:
+            # Format date/time for email
+            interview_datetime = schedule_data.start_time.strftime("%B %d, %Y at %I:%M %p UTC")
+            
+            # Build interviewer kit attachments info
+            kit_info = ""
+            if schedule_data.include_resume:
+                kit_info += "<li>Your resume will be shared with the interviewer</li>"
+            if schedule_data.include_scorecard_link:
+                kit_info += "<li>Interview feedback scorecard will be provided</li>"
+            
+            email_html = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <style>
+                    body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                    .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                    .header {{ background-color: #1e1b4b; color: white; padding: 20px; text-align: center; }}
+                    .content {{ padding: 20px; background-color: #f8fafc; }}
+                    .details-box {{ background-color: white; border-left: 4px solid #4f46e5; padding: 15px; margin: 15px 0; }}
+                    .meeting-link {{ display: inline-block; background-color: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 15px 0; }}
+                    .footer {{ padding: 20px; text-align: center; font-size: 12px; color: #666; }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <h2>Interview Scheduled!</h2>
+                    </div>
+                    <div class="content">
+                        <p>Dear {candidate['name']},</p>
+                        
+                        <p>Great news! We would like to invite you for an interview for the <strong>{job['title']}</strong> position.</p>
+                        
+                        <div class="details-box">
+                            <h3 style="margin-top: 0;">Interview Details</h3>
+                            <p><strong>Interview Type:</strong> {schedule_data.interview_type}</p>
+                            <p><strong>Date & Time:</strong> {interview_datetime}</p>
+                            <p><strong>Duration:</strong> {schedule_data.duration_minutes} minutes</p>
+                            <p><strong>Interviewer:</strong> {interviewer['name']}</p>
+                        </div>
+                        
+                        {f'<a href="{schedule_data.meeting_url}" class="meeting-link">Join Meeting</a>' if schedule_data.meeting_url else '<p><em>Meeting link will be shared shortly.</em></p>'}
+                        
+                        {f'<ul>{kit_info}</ul>' if kit_info else ''}
+                        
+                        <p>Please confirm your availability by replying to this email. If you need to reschedule, please let us know as soon as possible.</p>
+                        
+                        <p>We look forward to speaking with you!</p>
+                        
+                        <p>Best regards,<br>The Recruitment Team</p>
+                    </div>
+                    <div class="footer">
+                        <p>This is an automated confirmation. Please reply to confirm your attendance.</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """
+            
+            params = {
+                "from": SENDER_EMAIL,
+                "to": [candidate['email']],
+                "subject": f"Interview Scheduled - {job['title']} at {interview_datetime}",
+                "html": email_html
+            }
+            await asyncio.to_thread(resend.Emails.send, params)
+            logging.info(f"Interview confirmation email sent to {candidate['email']}")
+        except Exception as e:
+            logging.error(f"Failed to send interview confirmation email: {str(e)}")
+    
+    return schedule_obj
+
+@api_router.get("/schedules", response_model=List[InterviewSchedule])
+async def get_schedules(
+    candidate_id: Optional[str] = None,
+    interviewer_user_id: Optional[str] = None,
+    status: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+):
+    """Get interview schedules with optional filters"""
+    query = {}
+    if candidate_id:
+        query['candidate_id'] = candidate_id
+    if interviewer_user_id:
+        query['interviewer_user_id'] = interviewer_user_id
+    if status:
+        query['status'] = status
+    
+    schedules = await db.schedules.find(query, {"_id": 0}).sort("start_time", -1).to_list(1000)
+    
+    for schedule in schedules:
+        if isinstance(schedule['start_time'], str):
+            schedule['start_time'] = datetime.fromisoformat(schedule['start_time'])
+        if isinstance(schedule['end_time'], str):
+            schedule['end_time'] = datetime.fromisoformat(schedule['end_time'])
+        if isinstance(schedule['created_at'], str):
+            schedule['created_at'] = datetime.fromisoformat(schedule['created_at'])
+        if isinstance(schedule['updated_at'], str):
+            schedule['updated_at'] = datetime.fromisoformat(schedule['updated_at'])
+    
+    return schedules
+
+@api_router.put("/schedules/{schedule_id}/status")
+async def update_schedule_status(
+    schedule_id: str,
+    status: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Update interview schedule status (scheduled, completed, cancelled)"""
+    if status not in ["scheduled", "completed", "cancelled"]:
+        raise HTTPException(status_code=400, detail="Invalid status")
+    
+    result = await db.schedules.update_one(
+        {"id": schedule_id},
+        {
+            "$set": {
+                "status": status,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+        }
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    
+    return {"success": True, "message": f"Schedule status updated to {status}"}
+
+@api_router.get("/users/interviewers")
+async def get_interviewers(current_user: User = Depends(get_current_user)):
+    """Get list of users who can be interviewers (for searchable dropdown)"""
+    interviewers = await db.users.find(
+        {"role": {"$in": ["admin", "recruiter", "hiring_manager"]}},
+        {"_id": 0, "id": 1, "name": 1, "email": 1, "role": 1}
+    ).to_list(1000)
+    
+    return interviewers
+
 # ============= AUDIT LOGS =============
 
 @api_router.get("/audit-logs")
