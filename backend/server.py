@@ -1529,6 +1529,87 @@ async def get_withdrawal_requests(current_user: User = Depends(get_current_user)
     
     return requests
 
+@api_router.post("/withdrawal-requests/{withdrawal_id}/approve")
+async def approve_withdrawal_request(withdrawal_id: str, current_user: User = Depends(get_current_user)):
+    """
+    Approve a pending withdrawal request and complete the purge if requested.
+    This finalizes the withdrawal process initiated by the candidate.
+    """
+    # Get withdrawal request
+    withdrawal = await db.withdrawal_requests.find_one({"id": withdrawal_id}, {"_id": 0})
+    if not withdrawal:
+        raise HTTPException(status_code=404, detail="Withdrawal request not found")
+    
+    if withdrawal['status'] != 'pending':
+        raise HTTPException(status_code=400, detail="Withdrawal request already processed")
+    
+    # Get candidate data
+    candidate = await db.candidates.find_one({"id": withdrawal['candidate_id']}, {"_id": 0})
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    # If immediate purge was requested, delete all data
+    if withdrawal['purge_immediately']:
+        # Delete candidate and all related data
+        await db.candidates.delete_one({"id": withdrawal['candidate_id']})
+        await db.scorecards.delete_many({"candidate_id": withdrawal['candidate_id']})
+        await db.posh_reports.delete_many({"candidate_id": withdrawal['candidate_id']})
+        await db.sensitive_data.delete_one({"candidate_id": withdrawal['candidate_id']})
+        await db.schedules.delete_many({"candidate_id": withdrawal['candidate_id']})
+        await db.appointment_letters.delete_many({"candidate_id": withdrawal['candidate_id']})
+        
+        # Create audit log
+        audit_log = {
+            "id": str(uuid.uuid4()),
+            "action": "withdrawal_approved_with_purge",
+            "candidate_id": withdrawal['candidate_id'],
+            "candidate_email": candidate['email'],
+            "candidate_name": candidate['name'],
+            "performed_by": current_user.email,
+            "performed_by_name": current_user.name,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "withdrawal_reason": withdrawal['reason']
+        }
+        await db.audit_logs.insert_one(audit_log)
+        
+        message = "Withdrawal approved and all candidate data permanently deleted"
+    else:
+        # Keep data in talent pool (already marked as withdrawn)
+        # Create audit log
+        audit_log = {
+            "id": str(uuid.uuid4()),
+            "action": "withdrawal_approved_retained",
+            "candidate_id": withdrawal['candidate_id'],
+            "candidate_email": candidate['email'],
+            "candidate_name": candidate['name'],
+            "performed_by": current_user.email,
+            "performed_by_name": current_user.name,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "withdrawal_reason": withdrawal['reason'],
+            "retention_period": "6 months"
+        }
+        await db.audit_logs.insert_one(audit_log)
+        
+        message = "Withdrawal approved. Candidate data retained in talent pool for 6 months"
+    
+    # Update withdrawal request status
+    await db.withdrawal_requests.update_one(
+        {"id": withdrawal_id},
+        {
+            "$set": {
+                "status": "completed",
+                "processed_at": datetime.now(timezone.utc).isoformat(),
+                "processed_by": current_user.email
+            }
+        }
+    )
+    
+    return {
+        "success": True,
+        "message": message,
+        "data_purged": withdrawal['purge_immediately']
+    }
+
 # ============= DATA SNAPSHOT GENERATION (DPDP ACT - RIGHT TO ACCESS) =============
 
 @api_router.get("/candidates/{candidate_id}/generate-snapshot")
