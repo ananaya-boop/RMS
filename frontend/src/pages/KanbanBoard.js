@@ -7,8 +7,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import Sidebar from '@/components/Sidebar';
+import DeclinedSidebar from '@/components/DeclinedSidebar';
 import { toast } from 'sonner';
-import { Plus, Upload } from 'lucide-react';
+import { Plus, Upload, XCircle } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -29,6 +30,7 @@ export default function KanbanBoard({ user, onLogout }) {
   const [selectedJob, setSelectedJob] = useState(null);
   const [showUpload, setShowUpload] = useState(false);
   const [showAddCandidate, setShowAddCandidate] = useState(false);
+  const [showDeclinedSidebar, setShowDeclinedSidebar] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [newCandidate, setNewCandidate] = useState({
     name: '',
