@@ -284,6 +284,16 @@ export default function KanbanBoard({ user, onLogout }) {
                               Forward →
                             </button>
                           )}
+                          <button
+                            data-testid={`decline-${candidate.id}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeclineCandidate(candidate.id);
+                            }}
+                            className="text-xs px-2 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded transition-colors ml-auto"
+                          >
+                            ✕ Decline
+                          </button>
                         </div>
                       </CardContent>
                     </Card>
