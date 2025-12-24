@@ -334,79 +334,133 @@ export default function KanbanBoard({ user, onLogout }) {
         />
       )}
 
-      <Dialog open={showUpload} onOpenChange={setShowUpload}>
-        <DialogContent>
+      <Dialog open={showAddCandidate} onOpenChange={handleCloseAddDialog}>
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Upload Resume</DialogTitle>
+            <DialogTitle>Add Candidate</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <div>
-              <Label htmlFor="resume-file">Select PDF or DOCX file</Label>
+            {/* Resume Upload Section */}
+            <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-lg">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <Label className="text-base font-semibold text-indigo-900">Option 1: Upload Resume</Label>
+                  <p className="text-xs text-indigo-700 mt-1">Upload a PDF or DOCX file to auto-fill candidate details</p>
+                </div>
+                <Upload className="w-5 h-5 text-indigo-600" />
+              </div>
+              
               <Input
                 id="resume-file"
                 data-testid="resume-file-input"
                 type="file"
                 accept=".pdf,.docx"
                 onChange={handleUploadResume}
-                disabled={uploading}
+                disabled={uploading || parsedData}
+                className="cursor-pointer"
               />
+              
+              {uploading && (
+                <p className="text-sm text-indigo-600 mt-2 flex items-center gap-2">
+                  <span className="animate-spin">⏳</span> Parsing resume...
+                </p>
+              )}
+              
+              {parsedData && (
+                <div className="mt-3 p-3 bg-emerald-50 border border-emerald-200 rounded">
+                  <p className="text-sm font-medium text-emerald-900 mb-1">✓ Resume parsed successfully!</p>
+                  <p className="text-xs text-emerald-700">Candidate has been created. Review details below or close to finish.</p>
+                </div>
+              )}
             </div>
-            {uploading && <p className="text-sm text-slate-600">Parsing resume...</p>}
-          </div>
-        </DialogContent>
-      </Dialog>
 
-      <Dialog open={showAddCandidate} onOpenChange={setShowAddCandidate}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add Candidate Manually</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="name">Name</Label>
-              <Input
-                id="name"
-                data-testid="candidate-name-input"
-                value={newCandidate.name}
-                onChange={(e) => setNewCandidate({ ...newCandidate, name: e.target.value })}
-              />
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t border-slate-200" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-white px-2 text-slate-500">Or enter manually</span>
+              </div>
             </div>
-            <div>
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                data-testid="candidate-email-input"
-                type="email"
-                value={newCandidate.email}
-                onChange={(e) => setNewCandidate({ ...newCandidate, email: e.target.value })}
-              />
+
+            {/* Manual Entry Section */}
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="name">Name</Label>
+                <Input
+                  id="name"
+                  data-testid="candidate-name-input"
+                  value={newCandidate.name}
+                  onChange={(e) => setNewCandidate({ ...newCandidate, name: e.target.value })}
+                  disabled={parsedData}
+                  placeholder={parsedData ? "Auto-filled from resume" : "Enter candidate name"}
+                />
+              </div>
+              <div>
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  data-testid="candidate-email-input"
+                  type="email"
+                  value={newCandidate.email}
+                  onChange={(e) => setNewCandidate({ ...newCandidate, email: e.target.value })}
+                  disabled={parsedData}
+                  placeholder={parsedData ? "Auto-filled from resume" : "candidate@example.com"}
+                />
+              </div>
+              <div>
+                <Label htmlFor="phone">Phone</Label>
+                <Input
+                  id="phone"
+                  data-testid="candidate-phone-input"
+                  value={newCandidate.phone}
+                  onChange={(e) => setNewCandidate({ ...newCandidate, phone: e.target.value })}
+                  disabled={parsedData}
+                  placeholder={parsedData ? "Auto-filled from resume" : "+91 9876543210"}
+                />
+              </div>
+              <div>
+                <Label htmlFor="skills">Skills (comma separated)</Label>
+                <Input
+                  id="skills"
+                  data-testid="candidate-skills-input"
+                  placeholder={parsedData ? "Auto-filled from resume" : "Python, React, MongoDB"}
+                  value={newCandidate.skills}
+                  onChange={(e) => setNewCandidate({ ...newCandidate, skills: e.target.value })}
+                  disabled={parsedData}
+                />
+              </div>
+              <div>
+                <Label htmlFor="experience">Years of Experience</Label>
+                <Input
+                  id="experience"
+                  data-testid="candidate-experience-input"
+                  type="number"
+                  value={newCandidate.experience_years}
+                  onChange={(e) => setNewCandidate({ ...newCandidate, experience_years: parseInt(e.target.value) || 0 })}
+                  disabled={parsedData}
+                />
+              </div>
             </div>
-            <div>
-              <Label htmlFor="phone">Phone</Label>
-              <Input
-                id="phone"
-                data-testid="candidate-phone-input"
-                value={newCandidate.phone}
-                onChange={(e) => setNewCandidate({ ...newCandidate, phone: e.target.value })}
-              />
-            </div>
-            <div>
-              <Label htmlFor="skills">Skills (comma separated)</Label>
-              <Input
-                id="skills"
-                data-testid="candidate-skills-input"
-                placeholder="Python, React, MongoDB"
-                value={newCandidate.skills}
-                onChange={(e) => setNewCandidate({ ...newCandidate, skills: e.target.value })}
-              />
-            </div>
-            <Button 
-              data-testid="submit-candidate-btn"
-              onClick={handleAddCandidate}
-              className="w-full bg-[#1e1b4b] hover:bg-[#312e81]"
-            >
-              Add Candidate
-            </Button>
+
+            {parsedData ? (
+              <Button 
+                data-testid="close-after-upload-btn"
+                onClick={handleCloseAddDialog}
+                className="w-full bg-emerald-600 hover:bg-emerald-700"
+              >
+                Done - Candidate Added
+              </Button>
+            ) : (
+              <Button 
+                data-testid="submit-candidate-btn"
+                onClick={handleAddCandidate}
+                className="w-full bg-[#1e1b4b] hover:bg-[#312e81]"
+                disabled={!newCandidate.name || !newCandidate.email}
+              >
+                Add Candidate Manually
+              </Button>
+            )}
           </div>
         </DialogContent>
       </Dialog>
