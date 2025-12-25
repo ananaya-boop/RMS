@@ -290,7 +290,23 @@ WORKFLOW SUMMARY:
    - If accepted: Shows onboarding confirmation modal
    - On confirmation: Candidate moved to Onboarding
 
-4. Any Stage → Declined
+4. Onboarding → Offer (ROLLBACK)
+   - User drags candidate from "Onboarding" back to "Offer"
+   - OnboardingRollbackModal opens
+   - Shows warning about rollback action
+   - Recruiter selects rollback reason
+   - Clicks "Confirm Rollback"
+   - Candidate moved back to Offer stage
+   - Offer letter remains active
+   - Lifecycle event logged for audit
+   - Use cases:
+     * Incomplete documentation
+     * Background verification pending
+     * Failed background check
+     * Candidate requested delay
+     * Internal process issue
+
+5. Any Stage → Declined
    - User drags candidate to declined sidebar OR
    - Clicks decline button on candidate card
    - RejectionWorkflow modal opens
@@ -300,7 +316,7 @@ WORKFLOW SUMMARY:
    - Email sent, data purged (if selected)
    - Candidate removed from board
 
-5. Statutory Compliance Check
+6. Statutory Compliance Check
    - When candidate is in "Offer" or "Onboarding" stage
    - Green checkmark appears if "Ready for Emergent"
    - Missing statutory data flagged
