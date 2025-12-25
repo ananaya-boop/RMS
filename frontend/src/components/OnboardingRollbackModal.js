@@ -149,4 +149,4 @@ const OfferRollbackModal = ({ isOpen, onClose, candidate, onSuccess }) => {
   );
 };
 
-export default OnboardingRollbackModal;
+export default OfferRollbackModal;
