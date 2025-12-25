@@ -389,18 +389,6 @@ export default function KanbanBoard({ user, onLogout }) {
         />
       )}
 
-      {showOnboardingModal && candidateToOnboard && (
-        <OnboardingConfirmationModal
-          candidate={candidateToOnboard}
-          isOpen={showOnboardingModal}
-          onClose={() => {
-            setShowOnboardingModal(false);
-            setCandidateToOnboard(null);
-          }}
-          onSuccess={handleOnboardingSuccess}
-        />
-      )}
-
       <Dialog open={showAddCandidate} onOpenChange={handleCloseAddDialog}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
