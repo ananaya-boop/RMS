@@ -1872,6 +1872,310 @@ async def send_email(request: EmailRequest, current_user: User = Depends(get_cur
         logging.error(f"Failed to send email: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
 
+# ============= EMERGENT INTEGRATION ROUTES =============
+
+from emergent_integration import (
+    EmergentSalaryComponents, StatutoryCompliance, OfferLetterRequest,
+    OfferLetterPDF, EmergentEmployeeExport, EmergentExportService,
+    OfferEmailTemplate
+)
+
+@api_router.post("/emergent/offer-preview")
+async def get_offer_preview(request: OfferLetterRequest, current_user: User = Depends(get_current_user)):
+    """Generate preview of offer letter with Emergent salary components"""
+    candidate = await db.candidates.find_one({"id": request.candidate_id}, {"_id": 0})
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    # Calculate totals
+    gross_salary = request.salary_components.gross_salary
+    ctc = request.salary_components.ctc
+    
+    # Generate PDF
+    from datetime import timedelta
+    acceptance_deadline = (datetime.now() + timedelta(days=3)).strftime("%B %d, %Y")
+    
+    pdf_data = {
+        "candidate_id": request.candidate_id,
+        "candidate_name": candidate['name'],
+        "candidate_email": candidate['email'],
+        "designation": request.designation,
+        "department": request.department,
+        "work_location": request.work_location,
+        "reporting_manager": request.reporting_manager,
+        "joining_date": request.joining_date,
+        "probation_months": request.probation_months,
+        "notice_period_days": request.notice_period_days,
+        "salary_components": request.salary_components.to_dict(),
+        "gross_salary": gross_salary,
+        "ctc": ctc,
+        "acceptance_deadline": acceptance_deadline
+    }
+    
+    pdf_bytes = OfferLetterPDF.generate(pdf_data)
+    pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
+    
+    # Generate email preview
+    email_html = OfferEmailTemplate.render_html(pdf_data)
+    
+    return {
+        "candidate_name": candidate['name'],
+        "candidate_email": candidate['email'],
+        "subject": f"🎉 Job Offer - {request.designation}",
+        "html_preview": email_html,
+        "pdf_preview": f"data:application/pdf;base64,{pdf_base64}",
+        "pdf_filename": f"offer_letter_{candidate['name'].replace(' ', '_').lower()}.pdf",
+        "gross_salary": gross_salary,
+        "ctc": ctc
+    }
+
+@api_router.post("/emergent/send-offer")
+async def send_offer_letter(request: OfferLetterRequest, current_user: User = Depends(get_current_user)):
+    """Send offer letter with Emergent salary structure"""
+    candidate = await db.candidates.find_one({"id": request.candidate_id}, {"_id": 0})
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    from datetime import timedelta
+    from lifecycle_engine import s3_manager
+    
+    acceptance_deadline = (datetime.now() + timedelta(days=3)).strftime("%B %d, %Y")
+    
+    # Prepare data
+    pdf_data = {
+        "candidate_id": request.candidate_id,
+        "candidate_name": candidate['name'],
+        "candidate_email": candidate['email'],
+        "designation": request.designation,
+        "department": request.department,
+        "work_location": request.work_location,
+        "reporting_manager": request.reporting_manager,
+        "joining_date": request.joining_date,
+        "probation_months": request.probation_months,
+        "notice_period_days": request.notice_period_days,
+        "salary_components": request.salary_components.to_dict(),
+        "gross_salary": request.salary_components.gross_salary,
+        "ctc": request.salary_components.ctc,
+        "acceptance_deadline": acceptance_deadline
+    }
+    
+    # Generate PDF
+    pdf_bytes = OfferLetterPDF.generate(pdf_data)
+    filename = f"offer_letter_{request.candidate_id}_{datetime.now().strftime('%Y%m%d')}.pdf"
+    pdf_url = s3_manager.upload_pdf(pdf_bytes, filename, folder="offer_letters")
+    
+    # Store offer letter
+    offer_letter = {
+        "id": str(uuid.uuid4()),
+        "candidate_id": request.candidate_id,
+        "designation": request.designation,
+        "department": request.department,
+        "work_location": request.work_location,
+        "joining_date": datetime.fromisoformat(request.joining_date),
+        "salary_components": request.salary_components.model_dump(),
+        "gross_salary": request.salary_components.gross_salary,
+        "ctc": request.salary_components.ctc,
+        "reporting_manager": request.reporting_manager,
+        "probation_months": request.probation_months,
+        "notice_period_days": request.notice_period_days,
+        "pdf_url": pdf_url,
+        "status": "sent",
+        "sent_at": datetime.now(timezone.utc),
+        "created_at": datetime.now(timezone.utc)
+    }
+    await db.offer_letters.insert_one(offer_letter)
+    
+    # Send email
+    email_sent = False
+    email_id = None
+    
+    if request.send_email and RESEND_API_KEY:
+        try:
+            email_html = OfferEmailTemplate.render_html(pdf_data)
+            params = {
+                "from": SENDER_EMAIL,
+                "to": [candidate['email']],
+                "subject": f"🎉 Job Offer - {request.designation}",
+                "html": email_html,
+                "attachments": [{
+                    "filename": filename,
+                    "content": base64.b64encode(pdf_bytes).decode('utf-8')
+                }]
+            }
+            email_result = await asyncio.to_thread(resend.Emails.send, params)
+            email_sent = True
+            email_id = email_result.get("id")
+        except Exception as e:
+            logging.error(f"Failed to send offer email: {e}")
+    
+    # Update candidate stage to offer
+    await db.candidates.update_one(
+        {"id": request.candidate_id},
+        {"$set": {"stage": "offer", "updated_at": datetime.now(timezone.utc)}}
+    )
+    
+    return {
+        "success": True,
+        "email_sent": email_sent,
+        "pdf_url": pdf_url,
+        "offer_letter_id": offer_letter['id']
+    }
+
+@api_router.post("/emergent/update-statutory/{candidate_id}")
+async def update_statutory_compliance(
+    candidate_id: str,
+    statutory: StatutoryCompliance,
+    current_user: User = Depends(get_current_user)
+):
+    """Update statutory compliance data for candidate"""
+    candidate = await db.candidates.find_one({"id": candidate_id}, {"_id": 0})
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    # Update candidate with statutory data
+    await db.candidates.update_one(
+        {"id": candidate_id},
+        {
+            "$set": {
+                "statutory_compliance": statutory.model_dump(),
+                "emergent_ready": statutory.is_ready_for_emergent(),
+                "updated_at": datetime.now(timezone.utc)
+            }
+        }
+    )
+    
+    return {
+        "success": True,
+        "emergent_ready": statutory.is_ready_for_emergent(),
+        "missing_fields": [
+            field for field, value in statutory.model_dump().items()
+            if not value and field in ['pan', 'aadhaar_masked', 'uan', 'bank_account_number', 'bank_ifsc', 'bank_name']
+        ]
+    }
+
+@api_router.get("/emergent/check-readiness/{candidate_id}")
+async def check_emergent_readiness(candidate_id: str, current_user: User = Depends(get_current_user)):
+    """Check if candidate is ready for Emergent export"""
+    candidate = await db.candidates.find_one({"id": candidate_id}, {"_id": 0})
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    statutory = candidate.get('statutory_compliance', {})
+    offer = await db.offer_letters.find_one({"candidate_id": candidate_id}, {"_id": 0})
+    
+    checks = {
+        "has_offer_letter": offer is not None,
+        "has_pan": bool(statutory.get('pan')),
+        "has_aadhaar": bool(statutory.get('aadhaar_masked')),
+        "has_uan": bool(statutory.get('uan')),
+        "has_bank_details": bool(statutory.get('bank_account_number') and statutory.get('bank_ifsc')),
+        "stage_is_onboarding": candidate.get('stage') == 'onboarding'
+    }
+    
+    is_ready = all(checks.values())
+    
+    return {
+        "candidate_id": candidate_id,
+        "candidate_name": candidate['name'],
+        "emergent_ready": is_ready,
+        "checks": checks,
+        "missing_items": [key.replace('_', ' ').title() for key, value in checks.items() if not value]
+    }
+
+@api_router.post("/emergent/export")
+async def export_to_emergent(
+    candidate_ids: List[str],
+    current_user: User = Depends(get_current_user)
+):
+    """Export candidates to Emergent Employee Master CSV format"""
+    if current_user.role not in ["admin", "recruiter"]:
+        raise HTTPException(status_code=403, detail="Only Admin or Recruiter can export to Emergent")
+    
+    employees = []
+    
+    for candidate_id in candidate_ids:
+        candidate = await db.candidates.find_one({"id": candidate_id}, {"_id": 0})
+        if not candidate:
+            continue
+        
+        offer = await db.offer_letters.find_one({"candidate_id": candidate_id}, {"_id": 0})
+        if not offer:
+            continue
+        
+        statutory = candidate.get('statutory_compliance', {})
+        if not statutory:
+            continue
+        
+        # Split name
+        name_parts = candidate['name'].split(' ', 1)
+        first_name = name_parts[0]
+        last_name = name_parts[1] if len(name_parts) > 1 else ''
+        
+        # Format joining date
+        joining_date = offer['joining_date']
+        if isinstance(joining_date, str):
+            joining_date = datetime.fromisoformat(joining_date)
+        joining_date_formatted = joining_date.strftime("%d/%m/%Y")
+        
+        # Create employee export record
+        salary_components = offer['salary_components']
+        employee = EmergentEmployeeExport(
+            employee_id=f"EMP{candidate_id[:8].upper()}",
+            first_name=first_name,
+            last_name=last_name,
+            email=candidate['email'],
+            phone=candidate.get('phone', ''),
+            designation=offer['designation'],
+            department=offer['department'],
+            joining_date=joining_date_formatted,
+            work_location=offer['work_location'],
+            reporting_manager=offer['reporting_manager'],
+            basic=salary_components['basic'],
+            hra=salary_components['hra'],
+            conveyance=salary_components['conveyance'],
+            special_allowance=salary_components['special_allowance'],
+            lta=salary_components['lta'],
+            employer_pf=salary_components['employer_pf'],
+            gross_salary=offer['gross_salary'],
+            ctc=offer['ctc'],
+            pan=statutory['pan'],
+            aadhaar_last_4=statutory['aadhaar_masked'],
+            uan=statutory.get('uan', ''),
+            esic_number=statutory.get('esic_number'),
+            bank_account_number=statutory['bank_account_number'],
+            bank_ifsc=statutory['bank_ifsc'],
+            bank_branch=statutory.get('bank_branch', ''),
+            bank_name=statutory['bank_name'],
+            probation_months=offer['probation_months'],
+            notice_period_days=offer['notice_period_days']
+        )
+        employees.append(employee)
+    
+    if not employees:
+        raise HTTPException(status_code=400, detail="No eligible candidates found for export")
+    
+    # Generate CSV
+    csv_bytes = EmergentExportService.generate_csv(employees)
+    csv_base64 = base64.b64encode(csv_bytes).decode('utf-8')
+    
+    # Log export
+    export_log = {
+        "id": str(uuid.uuid4()),
+        "exported_by": current_user.id,
+        "candidate_count": len(employees),
+        "candidate_ids": candidate_ids,
+        "exported_at": datetime.now(timezone.utc)
+    }
+    await db.emergent_exports.insert_one(export_log)
+    
+    return {
+        "success": True,
+        "employee_count": len(employees),
+        "csv_data": f"data:text/csv;base64,{csv_base64}",
+        "filename": f"emergent_employee_master_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+        "export_log_id": export_log['id']
+    }
+
 # ============= LIFECYCLE ENGINE ROUTES =============
 
 from lifecycle_engine import (
