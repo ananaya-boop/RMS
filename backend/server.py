@@ -1872,6 +1872,76 @@ async def send_email(request: EmailRequest, current_user: User = Depends(get_cur
         logging.error(f"Failed to send email: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
 
+@api_router.post("/lifecycle/rollback-onboarding")
+async def rollback_onboarding(
+    candidate_id: str,
+    reason: str,
+    notes: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+):
+    """Rollback candidate from Onboarding to Offer stage"""
+    candidate = await db.candidates.find_one({"id": candidate_id}, {"_id": 0})
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    if candidate.get('stage') != 'onboarding':
+        raise HTTPException(status_code=400, detail="Candidate must be in Onboarding stage to rollback")
+    
+    # Check if offer exists
+    offer = await db.offer_letters.find_one({"candidate_id": candidate_id}, {"_id": 0})
+    if not offer:
+        raise HTTPException(status_code=404, detail="No offer letter found for this candidate")
+    
+    # Update candidate stage back to offer
+    await db.candidates.update_one(
+        {"id": candidate_id},
+        {
+            "$set": {
+                "stage": "offer",
+                "updated_at": datetime.now(timezone.utc)
+            },
+            "$unset": {
+                "offer_rejected": ""  # Clear any rejection flags
+            }
+        }
+    )
+    
+    # Update offer status to "rollback" (keeps it active)
+    await db.offer_letters.update_one(
+        {"candidate_id": candidate_id},
+        {
+            "$set": {
+                "status": "rollback",
+                "rollback_reason": reason,
+                "rollback_notes": notes,
+                "rollback_at": datetime.now(timezone.utc),
+                "rollback_by": current_user.id,
+                "updated_at": datetime.now(timezone.utc)
+            }
+        }
+    )
+    
+    # Create lifecycle event
+    lifecycle_event = LifecycleEvent(
+        candidate_id=candidate_id,
+        event_type="onboarding_rollback",
+        recruiter_id=current_user.id,
+        recruiter_email=current_user.email,
+        metadata={
+            "reason": reason,
+            "notes": notes,
+            "offer_id": offer['id']
+        }
+    )
+    await db.lifecycle_events.insert_one(lifecycle_event.model_dump())
+    
+    return {
+        "success": True,
+        "candidate_id": candidate_id,
+        "new_stage": "offer",
+        "lifecycle_event_id": lifecycle_event.id
+    }
+
 # ============= OFFER ACCEPTANCE ROUTES =============
 
 @api_router.get("/offer-acceptance/{token}")
