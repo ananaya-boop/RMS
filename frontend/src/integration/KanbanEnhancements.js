@@ -7,7 +7,7 @@
 // ========== IMPORTS TO ADD ==========
 import EmergentOfferEditor from '@/components/EmergentOfferEditor';
 import RejectionWorkflow from '@/components/RejectionWorkflow';
-import OnboardingRollbackModal from '@/components/OnboardingRollbackModal';
+import OfferRollbackModal from '@/components/OnboardingRollbackModal'; // Now handles Offer → HR rollback
 import { CandidateCard } from '@/components/CandidateCard';
 
 // ========== STATE TO ADD ==========
