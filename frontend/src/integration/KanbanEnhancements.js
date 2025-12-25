@@ -127,6 +127,15 @@ const handleDrop = async (e, toStage) => {
   await handleStageChange(candidateId, toStage, fromStage);
 };
 
+// ========== ROLLBACK SUCCESS HANDLER ==========
+const handleRollbackSuccess = () => {
+  setShowRollbackModal(false);
+  setCandidateForRollback(null);
+  fetchCandidates();
+  fetchOfferStatuses();
+  toast.success('Candidate rolled back to Offer stage successfully!');
+};
+
 // ========== OFFER SUCCESS HANDLER ==========
 const handleOfferSuccess = () => {
   setShowOfferEditor(false);
