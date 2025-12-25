@@ -7,6 +7,7 @@
 // ========== IMPORTS TO ADD ==========
 import EmergentOfferEditor from '@/components/EmergentOfferEditor';
 import RejectionWorkflow from '@/components/RejectionWorkflow';
+import OnboardingRollbackModal from '@/components/OnboardingRollbackModal';
 import { CandidateCard } from '@/components/CandidateCard';
 
 // ========== STATE TO ADD ==========
@@ -14,6 +15,8 @@ const [showOfferEditor, setShowOfferEditor] = useState(false);
 const [candidateForOffer, setCandidateForOffer] = useState(null);
 const [showRejectionModal, setShowRejectionModal] = useState(false);
 const [candidateForRejection, setCandidateForRejection] = useState(null);
+const [showRollbackModal, setShowRollbackModal] = useState(false);
+const [candidateForRollback, setCandidateForRollback] = useState(null);
 const [offerStatuses, setOfferStatuses] = useState({});
 
 // ========== FETCH OFFER STATUSES ==========
