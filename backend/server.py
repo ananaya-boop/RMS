@@ -1872,6 +1872,473 @@ async def send_email(request: EmailRequest, current_user: User = Depends(get_cur
         logging.error(f"Failed to send email: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
 
+# ============= LIFECYCLE ENGINE ROUTES =============
+
+from lifecycle_engine import (
+    RejectionRequest, RejectionEmailTemplate, OnboardingLetterRequest,
+    AppointmentLetterPDF, InterviewScheduleRequest, ICSGenerator,
+    LifecycleEvent, DataPurgeService, OnboardingEmailTemplate,
+    InterviewEmailTemplate, s3_manager
+)
+
+@api_router.post("/lifecycle/rejection-preview")
+async def get_rejection_preview(
+    candidate_id: str,
+    reason: str,
+    custom_message: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+):
+    """Generate preview of rejection email for dual-pane modal"""
+    candidate = await db.candidates.find_one({"id": candidate_id}, {"_id": 0})
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    template = RejectionEmailTemplate(
+        candidate_name=candidate['name'],
+        reason=reason,
+        custom_message=custom_message,
+        recruiter_name=current_user.name
+    )
+    
+    return {
+        "candidate_name": candidate['name'],
+        "candidate_email": candidate['email'],
+        "subject": "Application Status Update - Not Selected",
+        "html_preview": template.render_html(),
+        "will_purge_data": True
+    }
+
+@api_router.post("/lifecycle/send-rejection")
+async def send_rejection_and_purge(
+    request: RejectionRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """Send rejection email and purge candidate data as per DPDP Act 2023"""
+    candidate = await db.candidates.find_one({"id": request.candidate_id}, {"_id": 0})
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    # Generate email
+    template = RejectionEmailTemplate(
+        candidate_name=candidate['name'],
+        reason=request.reason,
+        custom_message=request.custom_message,
+        recruiter_name=current_user.name
+    )
+    
+    email_sent = False
+    email_id = None
+    
+    # Send email if configured and requested
+    if request.send_email and RESEND_API_KEY:
+        try:
+            params = {
+                "from": SENDER_EMAIL,
+                "to": [candidate['email']],
+                "subject": "Application Status Update - Not Selected",
+                "html": template.render_html()
+            }
+            email_result = await asyncio.to_thread(resend.Emails.send, params)
+            email_sent = True
+            email_id = email_result.get("id")
+        except Exception as e:
+            logging.error(f"Failed to send rejection email: {e}")
+    
+    # Purge data if requested
+    purge_result = None
+    if request.purge_data:
+        try:
+            purge_result = await DataPurgeService.purge_candidate_pii(
+                db, request.candidate_id, current_user.id
+            )
+        except Exception as e:
+            logging.error(f"Failed to purge data: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to purge data: {str(e)}")
+    
+    # Log lifecycle event
+    lifecycle_event = LifecycleEvent(
+        candidate_id=request.candidate_id,
+        event_type="rejection",
+        recruiter_id=current_user.id,
+        recruiter_email=current_user.email,
+        metadata={
+            "reason": request.reason,
+            "custom_message": request.custom_message
+        },
+        email_sent=email_sent,
+        email_id=email_id,
+        data_purged=request.purge_data
+    )
+    await db.lifecycle_events.insert_one(lifecycle_event.model_dump())
+    
+    return {
+        "success": True,
+        "email_sent": email_sent,
+        "data_purged": request.purge_data,
+        "lifecycle_event_id": lifecycle_event.id,
+        "purge_result": purge_result
+    }
+
+@api_router.post("/lifecycle/onboarding-preview")
+async def get_onboarding_preview(request: OnboardingLetterRequest, current_user: User = Depends(get_current_user)):
+    """Generate preview of appointment letter for dual-pane modal"""
+    candidate = await db.candidates.find_one({"id": request.candidate_id}, {"_id": 0})
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    job = await db.jobs.find_one({"id": candidate['job_id']}, {"_id": 0})
+    
+    # Generate PDF
+    pdf_data = {
+        "candidate_id": request.candidate_id,
+        "candidate_name": candidate['name'],
+        "candidate_email": candidate['email'],
+        "designation": request.designation,
+        "joining_date": request.joining_date,
+        "ctc_annual": request.ctc_annual,
+        "ctc_breakup": request.ctc_breakup,
+        "reporting_manager": request.reporting_manager,
+        "work_location": request.work_location,
+        "department": request.department,
+        "probation_months": request.probation_months,
+        "notice_period_days": request.notice_period_days
+    }
+    
+    pdf_bytes = AppointmentLetterPDF.generate(pdf_data)
+    pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
+    
+    # Generate email preview
+    email_html = OnboardingEmailTemplate.render_html(pdf_data)
+    
+    return {
+        "candidate_name": candidate['name'],
+        "candidate_email": candidate['email'],
+        "subject": f"🎉 Appointment Letter - {request.designation}",
+        "html_preview": email_html,
+        "pdf_preview": f"data:application/pdf;base64,{pdf_base64}",
+        "pdf_filename": f"appointment_letter_{candidate['name'].replace(' ', '_').lower()}.pdf"
+    }
+
+@api_router.post("/lifecycle/send-onboarding")
+async def send_onboarding_letter(request: OnboardingLetterRequest, current_user: User = Depends(get_current_user)):
+    """Generate appointment letter PDF, upload to S3, and send email"""
+    candidate = await db.candidates.find_one({"id": request.candidate_id}, {"_id": 0})
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    # Generate PDF
+    pdf_data = {
+        "candidate_id": request.candidate_id,
+        "candidate_name": candidate['name'],
+        "candidate_email": candidate['email'],
+        "designation": request.designation,
+        "joining_date": request.joining_date,
+        "ctc_annual": request.ctc_annual,
+        "ctc_breakup": request.ctc_breakup,
+        "reporting_manager": request.reporting_manager,
+        "work_location": request.work_location,
+        "department": request.department,
+        "probation_months": request.probation_months,
+        "notice_period_days": request.notice_period_days
+    }
+    
+    pdf_bytes = AppointmentLetterPDF.generate(pdf_data)
+    
+    # Upload to S3 or get base64
+    filename = f"appointment_letter_{request.candidate_id}_{datetime.now().strftime('%Y%m%d')}.pdf"
+    pdf_url = s3_manager.upload_pdf(pdf_bytes, filename, folder="appointment_letters")
+    
+    # Store appointment letter record
+    appointment_letter = AppointmentLetter(
+        candidate_id=request.candidate_id,
+        designation=request.designation,
+        joining_date=datetime.fromisoformat(request.joining_date),
+        ctc_annual=request.ctc_annual,
+        ctc_breakup=request.ctc_breakup,
+        reporting_manager=request.reporting_manager,
+        work_location=request.work_location,
+        pdf_url=pdf_url
+    )
+    
+    # Send email with PDF attachment if configured
+    email_sent = False
+    email_id = None
+    
+    if request.send_email and RESEND_API_KEY:
+        try:
+            email_html = OnboardingEmailTemplate.render_html(pdf_data)
+            
+            # For Resend, we need to use attachments
+            params = {
+                "from": SENDER_EMAIL,
+                "to": [candidate['email']],
+                "subject": f"🎉 Appointment Letter - {request.designation}",
+                "html": email_html,
+                "attachments": [{
+                    "filename": filename,
+                    "content": base64.b64encode(pdf_bytes).decode('utf-8')
+                }]
+            }
+            
+            email_result = await asyncio.to_thread(resend.Emails.send, params)
+            email_sent = True
+            email_id = email_result.get("id")
+            appointment_letter.email_sent = True
+            appointment_letter.sent_at = datetime.now(timezone.utc)
+        except Exception as e:
+            logging.error(f"Failed to send onboarding email: {e}")
+    
+    # Save appointment letter to database
+    await db.appointment_letters.insert_one(appointment_letter.model_dump())
+    
+    # Update candidate stage to onboarding
+    await db.candidates.update_one(
+        {"id": request.candidate_id},
+        {"$set": {"stage": "onboarding", "updated_at": datetime.now(timezone.utc)}}
+    )
+    
+    # Log lifecycle event
+    lifecycle_event = LifecycleEvent(
+        candidate_id=request.candidate_id,
+        event_type="onboarding",
+        recruiter_id=current_user.id,
+        recruiter_email=current_user.email,
+        metadata={
+            "designation": request.designation,
+            "ctc_annual": request.ctc_annual,
+            "joining_date": request.joining_date
+        },
+        email_sent=email_sent,
+        email_id=email_id,
+        pdf_generated=True,
+        pdf_url=pdf_url
+    )
+    await db.lifecycle_events.insert_one(lifecycle_event.model_dump())
+    
+    return {
+        "success": True,
+        "email_sent": email_sent,
+        "pdf_url": pdf_url,
+        "appointment_letter_id": appointment_letter.id,
+        "lifecycle_event_id": lifecycle_event.id
+    }
+
+@api_router.post("/lifecycle/schedule-interview")
+async def schedule_interview(request: InterviewScheduleRequest, current_user: User = Depends(get_current_user)):
+    """Schedule interview and send calendar invites"""
+    candidate = await db.candidates.find_one({"id": request.candidate_id}, {"_id": 0})
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    job = await db.jobs.find_one({"id": request.job_id}, {"_id": 0})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    interviewer = await db.users.find_one({"id": request.interviewer_user_id}, {"_id": 0})
+    if not interviewer:
+        raise HTTPException(status_code=404, detail="Interviewer not found")
+    
+    # Create interview schedule
+    end_time = request.start_time + timedelta(minutes=request.duration_minutes)
+    
+    interview_schedule = InterviewSchedule(
+        candidate_id=request.candidate_id,
+        job_id=request.job_id,
+        interviewer_user_id=request.interviewer_user_id,
+        interviewer_name=interviewer['name'],
+        interviewer_email=interviewer['email'],
+        interview_type=request.interview_type,
+        start_time=request.start_time,
+        end_time=end_time,
+        duration_minutes=request.duration_minutes,
+        meeting_url=request.meeting_url,
+        created_by=current_user.id
+    )
+    
+    await db.interview_schedules.insert_one(interview_schedule.model_dump())
+    
+    # Generate ICS file
+    ics_content = None
+    if request.generate_ics:
+        ics_data = {
+            "uid": interview_schedule.id,
+            "start_time": request.start_time,
+            "duration_minutes": request.duration_minutes,
+            "summary": f"{request.interview_type} Interview - {job['title']}",
+            "description": f"Interview with {candidate['name']} for {job['title']} position",
+            "meeting_url": request.meeting_url or "Virtual",
+            "organizer_name": current_user.name,
+            "organizer_email": current_user.email,
+            "candidate_name": candidate['name'],
+            "candidate_email": candidate['email'],
+            "interviewer_name": interviewer['name'],
+            "interviewer_email": interviewer['email']
+        }
+        ics_content = ICSGenerator.generate(ics_data)
+    
+    # Send email notifications
+    email_sent = False
+    if request.send_email and RESEND_API_KEY:
+        try:
+            email_data = {
+                "candidate_name": candidate['name'],
+                "job_title": job['title'],
+                "interview_type": request.interview_type,
+                "start_time_formatted": request.start_time.strftime("%B %d, %Y at %I:%M %p"),
+                "duration_minutes": request.duration_minutes,
+                "interviewer_name": interviewer['name'],
+                "meeting_url": request.meeting_url
+            }
+            
+            email_html = InterviewEmailTemplate.render_html(email_data)
+            
+            # Send to candidate
+            params = {
+                "from": SENDER_EMAIL,
+                "to": [candidate['email']],
+                "subject": f"Interview Scheduled - {request.interview_type}",
+                "html": email_html
+            }
+            
+            if ics_content:
+                params["attachments"] = [{
+                    "filename": "interview.ics",
+                    "content": base64.b64encode(ics_content.encode()).decode('utf-8')
+                }]
+            
+            await asyncio.to_thread(resend.Emails.send, params)
+            
+            # Send to interviewer
+            params["to"] = [interviewer['email']]
+            await asyncio.to_thread(resend.Emails.send, params)
+            
+            email_sent = True
+        except Exception as e:
+            logging.error(f"Failed to send interview emails: {e}")
+    
+    # Log lifecycle event
+    lifecycle_event = LifecycleEvent(
+        candidate_id=request.candidate_id,
+        event_type="interview_scheduled",
+        event_subtype=request.interview_type,
+        recruiter_id=current_user.id,
+        recruiter_email=current_user.email,
+        metadata={
+            "interviewer": interviewer['name'],
+            "start_time": request.start_time.isoformat(),
+            "duration_minutes": request.duration_minutes
+        },
+        email_sent=email_sent
+    )
+    await db.lifecycle_events.insert_one(lifecycle_event.model_dump())
+    
+    return {
+        "success": True,
+        "interview_id": interview_schedule.id,
+        "email_sent": email_sent,
+        "ics_file": ics_content if request.generate_ics else None,
+        "lifecycle_event_id": lifecycle_event.id
+    }
+
+@api_router.get("/lifecycle/candidate-snapshot/{candidate_id}")
+async def generate_candidate_snapshot(candidate_id: str, current_user: User = Depends(get_current_user)):
+    """Generate complete data snapshot for candidate (Right to Access - DPDP Act 2023)"""
+    candidate = await db.candidates.find_one({"id": candidate_id}, {"_id": 0})
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    # Collect all data
+    job = await db.jobs.find_one({"id": candidate['job_id']}, {"_id": 0})
+    scorecards = await db.scorecards.find({"candidate_id": candidate_id}, {"_id": 0}).to_list(100)
+    interviews = await db.interview_schedules.find({"candidate_id": candidate_id}, {"_id": 0}).to_list(100)
+    lifecycle_events = await db.lifecycle_events.find({"candidate_id": candidate_id}, {"_id": 0}).to_list(100)
+    
+    snapshot_data = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "candidate": candidate,
+        "job": job,
+        "scorecards": scorecards,
+        "interviews": interviews,
+        "lifecycle_events": lifecycle_events
+    }
+    
+    # Log the snapshot generation
+    lifecycle_event = LifecycleEvent(
+        candidate_id=candidate_id,
+        event_type="data_snapshot",
+        recruiter_id=current_user.id,
+        recruiter_email=current_user.email,
+        metadata={"snapshot_size": len(str(snapshot_data))}
+    )
+    await db.lifecycle_events.insert_one(lifecycle_event.model_dump())
+    
+    return {
+        "success": True,
+        "snapshot": snapshot_data,
+        "lifecycle_event_id": lifecycle_event.id
+    }
+
+@api_router.post("/lifecycle/candidate-withdrawal")
+async def process_candidate_withdrawal(
+    candidate_id: str,
+    reason: str,
+    purge_immediately: bool = False,
+    current_user: User = Depends(get_current_user)
+):
+    """Process candidate-initiated withdrawal"""
+    candidate = await db.candidates.find_one({"id": candidate_id}, {"_id": 0})
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    # Create withdrawal request
+    withdrawal = WithdrawalRequest(
+        candidate_id=candidate_id,
+        reason=reason,
+        purge_immediately=purge_immediately
+    )
+    
+    # If immediate purge requested
+    if purge_immediately:
+        purge_result = await DataPurgeService.purge_candidate_pii(db, candidate_id, current_user.id)
+        withdrawal.status = "completed"
+        withdrawal.processed_at = datetime.now(timezone.utc)
+    else:
+        # Just mark as withdrawn
+        await db.candidates.update_one(
+            {"id": candidate_id},
+            {"$set": {"stage": "withdrawn", "updated_at": datetime.now(timezone.utc)}}
+        )
+    
+    await db.withdrawal_requests.insert_one(withdrawal.model_dump())
+    
+    # Log lifecycle event
+    lifecycle_event = LifecycleEvent(
+        candidate_id=candidate_id,
+        event_type="withdrawal",
+        recruiter_id=current_user.id,
+        recruiter_email=current_user.email,
+        metadata={"reason": reason, "purged": purge_immediately},
+        data_purged=purge_immediately
+    )
+    await db.lifecycle_events.insert_one(lifecycle_event.model_dump())
+    
+    return {
+        "success": True,
+        "withdrawal_id": withdrawal.id,
+        "data_purged": purge_immediately,
+        "lifecycle_event_id": lifecycle_event.id
+    }
+
+@api_router.get("/lifecycle/events/{candidate_id}")
+async def get_candidate_lifecycle_events(candidate_id: str, current_user: User = Depends(get_current_user)):
+    """Get all lifecycle events for a candidate"""
+    events = await db.lifecycle_events.find(
+        {"candidate_id": candidate_id},
+        {"_id": 0}
+    ).sort("timestamp", -1).to_list(100)
+    
+    return {"events": events}
+
 # Include the router in the main app
 app.include_router(api_router)
 
