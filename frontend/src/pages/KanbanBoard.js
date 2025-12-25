@@ -229,23 +229,6 @@ export default function KanbanBoard({ user, onLogout }) {
     }
   };
 
-  const handleOnboardingSuccess = async () => {
-    if (!candidateToOnboard) return;
-    
-    // Update candidate stage to onboarded
-    try {
-      const token = localStorage.getItem('token');
-      await axios.put(`${API}/candidates/${candidateToOnboard.id}/stage`, 
-        { stage: 'onboarding' },
-        { headers: { Authorization: `Bearer ${token}` }}
-      );
-      fetchCandidates();
-      setCandidateToOnboard(null);
-    } catch (error) {
-      console.error('Error updating stage:', error);
-    }
-  };
-
   const getCandidatesByStage = (stage) => {
     return candidates.filter(c => c.stage === stage);
   };
