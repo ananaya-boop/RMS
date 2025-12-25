@@ -240,9 +240,9 @@ const renderStageColumn = (stage) => {
   />
 )}
 
-{/* Onboarding Rollback Modal */}
+{/* Offer Rollback Modal */}
 {showRollbackModal && candidateForRollback && (
-  <OnboardingRollbackModal
+  <OfferRollbackModal
     isOpen={showRollbackModal}
     onClose={() => {
       setShowRollbackModal(false);
