@@ -102,10 +102,22 @@
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
 
-user_problem_statement: "Run the RMS (Recruitment Management System) system from the GitHub repository"
+user_problem_statement: "Implement Dual-Pane Modal Engine with Rejection Workflow (DPDP data purge), Onboarding Workflow (Appointment Letter PDF), Interview Scheduling Sidebar, and Privacy Hub for DPDP Act 2023 compliance"
 
 backend:
-  - task: "Backend server setup and running"
+  - task: "Lifecycle Engine Core Module"
+    implemented: true
+    working: true
+    file: "/app/backend/lifecycle_engine.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Created comprehensive lifecycle_engine.py module with RejectionEmailTemplate, AppointmentLetterPDF, ICSGenerator, S3Manager, DataPurgeService, and email templates. All models and services implemented."
+
+  - task: "Rejection API with Data Purge"
     implemented: true
     working: true
     file: "/app/backend/server.py"
@@ -115,34 +127,169 @@ backend:
     status_history:
       - working: true
         agent: "main"
-        comment: "Successfully cloned repository, installed dependencies, created .env file with MongoDB connection, JWT secret, and CORS settings. Backend running on port 8001 with uvicorn."
+        comment: "Implemented POST /api/lifecycle/rejection-preview and POST /api/lifecycle/send-rejection. Includes DPDP-compliant data purge, audit logging, and anonymized data retention. Backend running successfully."
 
-frontend:
-  - task: "Frontend application setup and running"
+  - task: "Onboarding API with PDF Generation"
     implemented: true
     working: true
-    file: "/app/frontend/src/*"
+    file: "/app/backend/server.py"
     stuck_count: 0
     priority: "high"
     needs_retesting: false
     status_history:
       - working: true
         agent: "main"
-        comment: "Successfully installed all frontend dependencies using yarn, created .env file with REACT_APP_BACKEND_URL pointing to production URL. Frontend running on port 3000 with React."
+        comment: "Implemented POST /api/lifecycle/onboarding-preview and POST /api/lifecycle/send-onboarding. Generates professional appointment letter PDF with CTC breakup, uploads to S3 (with base64 fallback), sends email with attachment."
+
+  - task: "Interview Scheduling API with ICS Generation"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Implemented POST /api/lifecycle/schedule-interview. Generates .ics calendar files, sends emails to candidate and interviewer, creates interview records."
+
+  - task: "Privacy Hub APIs (Snapshot & Withdrawal)"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Implemented GET /api/lifecycle/candidate-snapshot/{id} and POST /api/lifecycle/candidate-withdrawal. Exports complete data as JSON, processes withdrawals with optional data purge."
+
+  - task: "S3 Integration for Document Storage"
+    implemented: true
+    working: true
+    file: "/app/backend/lifecycle_engine.py"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Implemented S3Manager class with boto3. Supports file upload, presigned URLs, and automatic fallback to base64 encoding if AWS credentials not configured."
+
+  - task: "Database Schema for Lifecycle Events"
+    implemented: true
+    working: true
+    file: "/app/LIFECYCLE_ENGINE_SCHEMA.md"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Created comprehensive database schema documentation. Includes lifecycle_events, appointment_letters, interview_schedules, withdrawal_requests, and anonymized_candidates collections."
+
+frontend:
+  - task: "DualPaneModal Reusable Component"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/components/DualPaneModal.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Created reusable DualPaneModal component with left pane (editable form) and right pane (live preview). Fully responsive with loading states and backdrop."
+
+  - task: "EmailPreviewPane Component"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/components/EmailPreviewPane.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Created EmailPreviewPane component for displaying HTML email previews with headers and DPDP purge warnings."
+
+  - task: "PDFPreviewPane Component"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/components/PDFPreviewPane.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Created PDFPreviewPane component with iframe PDF preview and download functionality."
+
+  - task: "RejectionWorkflow Component"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/components/RejectionWorkflow.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Implemented complete rejection workflow with dual-pane modal. Includes rejection reason dropdown, custom message, live email preview, data purge checkbox, and DPDP compliance warnings."
+
+  - task: "OnboardingWorkflow Component"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/components/OnboardingWorkflow.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Implemented onboarding workflow with editable CTC breakup (add/remove components), joining date, reporting manager, and live PDF preview. Includes dynamic calculation of total CTC."
+
+  - task: "InterviewSchedulingSidebar Component"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/components/InterviewSchedulingSidebar.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Implemented sticky sidebar for interview scheduling with searchable interviewer list, date/time pickers, meeting URL input, and .ics file generation options."
+
+  - task: "PrivacyHubPanel Component"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/components/PrivacyHubPanel.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Implemented Privacy Hub with data snapshot generation (Right to Access) and candidate withdrawal processing. Includes withdrawal reason dropdown and optional immediate data purge."
 
 metadata:
   created_by: "main_agent"
-  version: "1.0"
-  test_sequence: 0
-  run_ui: true
+  version: "2.0"
+  test_sequence: 1
+  run_ui: false
 
 test_plan:
   current_focus:
-    - "Verify RMS system is accessible"
+    - "Test rejection workflow with data purge"
+    - "Test onboarding workflow with PDF generation"
+    - "Test interview scheduling with .ics generation"
+    - "Test privacy hub data snapshot"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
 
 agent_communication:
   - agent: "main"
-    message: "RMS system successfully set up and running. Repository cloned from https://github.com/ananaya-boop/RMS/. All dependencies installed. MongoDB connected. Backend running on port 8001, Frontend on port 3000. System ready for use."
+    message: "Implemented complete Dual-Pane Modal Engine with all 4 workflows (Rejection, Onboarding, Interview Scheduling, Privacy Hub). Backend APIs created with DPDP Act 2023 compliance, PDF generation, S3 integration, and .ics calendar files. Frontend components created with live preview functionality. All components need integration testing with actual user flows. Backend is running successfully. Frontend components created but need to be integrated into existing pages (KanbanBoard, CandidateProfile, etc.) for full workflow testing."
