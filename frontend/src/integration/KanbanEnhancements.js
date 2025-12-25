@@ -230,6 +230,19 @@ const renderStageColumn = (stage) => {
   />
 )}
 
+{/* Onboarding Rollback Modal */}
+{showRollbackModal && candidateForRollback && (
+  <OnboardingRollbackModal
+    isOpen={showRollbackModal}
+    onClose={() => {
+      setShowRollbackModal(false);
+      setCandidateForRollback(null);
+    }}
+    candidate={candidateForRollback}
+    onSuccess={handleRollbackSuccess}
+  />
+)}
+
 // ========== DECLINED SIDEBAR ENHANCEMENT ==========
 <DeclinedSidebar
   isOpen={showDeclinedSidebar}
