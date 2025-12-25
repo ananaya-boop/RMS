@@ -78,14 +78,21 @@ const handleStageChange = async (candidateId, newStage, fromStage) => {
     return;
   }
 
-  // 3. Any stage → Declined: Show rejection workflow
+  // 3. Onboarding → Offer: Rollback with confirmation
+  if (fromStage === 'onboarding' && newStage === 'offer') {
+    setCandidateForRollback(candidate);
+    setShowRollbackModal(true);
+    return;
+  }
+
+  // 4. Any stage → Declined: Show rejection workflow
   if (newStage === 'declined') {
     setCandidateForRejection(candidate);
     setShowRejectionModal(true);
     return;
   }
 
-  // 4. For other stage changes, update directly
+  // 5. For other stage changes, update directly
   try {
     const token = localStorage.getItem('token');
     await axios.put(`${API}/candidates/${candidateId}/stage`, 
