@@ -5,19 +5,19 @@ import { AlertTriangle, RotateCcw, FileText } from 'lucide-react';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 
 /**
- * OnboardingRollbackModal - Confirmation modal for rolling back to Offer stage
+ * OfferRollbackModal - Confirmation modal for rolling back from Offer to HR Round
  */
-const OnboardingRollbackModal = ({ isOpen, onClose, candidate, onSuccess }) => {
+const OfferRollbackModal = ({ isOpen, onClose, candidate, onSuccess }) => {
   const [reason, setReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const rollbackReasons = [
-    'Incomplete documentation',
-    'Background verification pending',
-    'Failed background check',
-    'Candidate requested delay',
-    'Internal process issue',
+    'Candidate requested changes to offer',
     'Salary negotiation required',
+    'Benefits adjustment needed',
+    'Title or role clarification',
+    'Start date modification',
+    'Internal approval pending',
     'Other'
   ];
 
@@ -33,7 +33,7 @@ const OnboardingRollbackModal = ({ isOpen, onClose, candidate, onSuccess }) => {
       
       // Call rollback API
       const response = await axios.post(
-        `${BACKEND_URL}/api/lifecycle/rollback-onboarding`,
+        `${BACKEND_URL}/api/lifecycle/rollback-offer`,
         {
           candidate_id: candidate.id,
           reason: reason
@@ -42,7 +42,7 @@ const OnboardingRollbackModal = ({ isOpen, onClose, candidate, onSuccess }) => {
       );
 
       if (response.data.success) {
-        alert('Candidate rolled back to Offer stage. The offer letter remains active.');
+        alert('Candidate rolled back to HR Round. The offer letter remains accessible for reference.');
         onSuccess?.();
         onClose();
       }
@@ -69,8 +69,8 @@ const OnboardingRollbackModal = ({ isOpen, onClose, candidate, onSuccess }) => {
               </div>
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">Rollback to Offer Stage</h3>
-              <p className="text-sm text-gray-600">Move candidate back for re-processing</p>
+              <h3 className="text-lg font-semibold text-gray-900">Rollback to HR Round</h3>
+              <p className="text-sm text-gray-600">Move candidate back for re-negotiation</p>
             </div>
           </div>
 
@@ -89,8 +89,8 @@ const OnboardingRollbackModal = ({ isOpen, onClose, candidate, onSuccess }) => {
               </div>
               <div className="ml-3">
                 <p className="text-sm text-yellow-700">
-                  <strong>Important:</strong> Rolling back will return the candidate to the Offer stage. 
-                  The existing offer letter will remain active. Use this when onboarding needs to be restarted.
+                  <strong>Important:</strong> Rolling back will return the candidate to the HR Round stage. 
+                  The existing offer letter will remain accessible but inactive. Use this when offer terms need renegotiation.
                 </p>
               </div>
             </div>
@@ -114,25 +114,13 @@ const OnboardingRollbackModal = ({ isOpen, onClose, candidate, onSuccess }) => {
             </select>
           </div>
 
-          {/* Additional Notes */}
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Additional Notes (Optional)
-            </label>
-            <textarea
-              rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-              placeholder="Add any additional context..."
-            />
-          </div>
-
           {/* What Happens */}
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
             <p className="text-sm font-medium text-blue-900 mb-2">What happens next:</p>
             <ul className="text-sm text-blue-800 space-y-1">
-              <li>✓ Candidate moved back to Offer stage</li>
-              <li>✓ Offer letter remains accessible</li>
-              <li>✓ Onboarding documents retained for review</li>
+              <li>✓ Candidate moved back to HR Round</li>
+              <li>✓ Offer letter marked as inactive</li>
+              <li>✓ Can create new offer after negotiation</li>
               <li>✓ Lifecycle event logged for audit trail</li>
               <li>✓ No emails sent (manual follow-up required)</li>
             </ul>
