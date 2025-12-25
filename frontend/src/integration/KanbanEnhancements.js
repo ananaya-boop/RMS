@@ -297,26 +297,32 @@ WORKFLOW SUMMARY:
    - User tries to drag candidate from "Offer" to "Onboarding"
    - handleStageChange checks if offer is accepted
    - If not accepted: Shows error message
-   - If accepted: Shows onboarding confirmation modal
-   - On confirmation: Candidate moved to Onboarding
+   - If accepted: Directly moves to Onboarding (normal pipeline stage)
 
-4. Onboarding → Offer (ROLLBACK)
-   - User drags candidate from "Onboarding" back to "Offer"
-   - OnboardingRollbackModal opens
+4. Offer → HR Round (ROLLBACK)
+   - User drags candidate from "Offer" back to "HR Round"
+   - OfferRollbackModal opens
    - Shows warning about rollback action
-   - Recruiter selects rollback reason
+   - Recruiter selects rollback reason (negotiation, changes needed, etc.)
    - Clicks "Confirm Rollback"
-   - Candidate moved back to Offer stage
-   - Offer letter remains active
+   - Candidate moved back to HR Round
+   - Offer letter marked as inactive
    - Lifecycle event logged for audit
    - Use cases:
-     * Incomplete documentation
-     * Background verification pending
-     * Failed background check
-     * Candidate requested delay
-     * Internal process issue
+     * Candidate requested changes to offer
+     * Salary negotiation required
+     * Benefits adjustment needed
+     * Title or role clarification
+     * Start date modification
+     * Internal approval pending
 
-5. Any Stage → Declined
+5. Onboarding Stage (NORMAL PIPELINE)
+   - Regular stage with no special functionality
+   - Candidate can be moved freely
+   - Used for tracking onboarding progress
+   - Ready for Emergent export when complete
+
+6. Any Stage → Declined
    - User drags candidate to declined sidebar OR
    - Clicks decline button on candidate card
    - RejectionWorkflow modal opens
@@ -326,8 +332,8 @@ WORKFLOW SUMMARY:
    - Email sent, data purged (if selected)
    - Candidate removed from board
 
-6. Statutory Compliance Check
-   - When candidate is in "Offer" or "Onboarding" stage
+7. Statutory Compliance Check
+   - When candidate is in "Offer" stage
    - Green checkmark appears if "Ready for Emergent"
    - Missing statutory data flagged
 
