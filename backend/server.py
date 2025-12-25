@@ -2069,6 +2069,7 @@ async def send_offer_letter(request: OfferLetterRequest, current_user: User = De
     
     from datetime import timedelta
     from lifecycle_engine import s3_manager
+    import jwt
     
     acceptance_deadline = (datetime.now() + timedelta(days=3)).strftime("%B %d, %Y")
     
@@ -2095,9 +2096,25 @@ async def send_offer_letter(request: OfferLetterRequest, current_user: User = De
     filename = f"offer_letter_{request.candidate_id}_{datetime.now().strftime('%Y%m%d')}.pdf"
     pdf_url = s3_manager.upload_pdf(pdf_bytes, filename, folder="offer_letters")
     
+    # Create offer letter ID
+    offer_letter_id = str(uuid.uuid4())
+    
+    # Generate acceptance token (valid for 30 days)
+    acceptance_token = jwt.encode(
+        {
+            "candidate_id": request.candidate_id,
+            "offer_id": offer_letter_id,
+            "exp": datetime.now(timezone.utc) + timedelta(days=30)
+        },
+        JWT_SECRET_KEY,
+        algorithm="HS256"
+    )
+    
+    acceptance_url = f"{os.environ.get('FRONTEND_URL', 'http://localhost:3000')}/offer-acceptance/{acceptance_token}"
+    
     # Store offer letter
     offer_letter = {
-        "id": str(uuid.uuid4()),
+        "id": offer_letter_id,
         "candidate_id": request.candidate_id,
         "designation": request.designation,
         "department": request.department,
@@ -2110,6 +2127,8 @@ async def send_offer_letter(request: OfferLetterRequest, current_user: User = De
         "probation_months": request.probation_months,
         "notice_period_days": request.notice_period_days,
         "pdf_url": pdf_url,
+        "acceptance_token": acceptance_token,
+        "acceptance_url": acceptance_url,
         "status": "sent",
         "sent_at": datetime.now(timezone.utc),
         "created_at": datetime.now(timezone.utc)
@@ -2122,7 +2141,20 @@ async def send_offer_letter(request: OfferLetterRequest, current_user: User = De
     
     if request.send_email and RESEND_API_KEY:
         try:
+            # Update email template to include acceptance link
+            pdf_data['acceptance_url'] = acceptance_url
             email_html = OfferEmailTemplate.render_html(pdf_data)
+            
+            # Add acceptance link button to email
+            email_html = email_html.replace(
+                '</body>',
+                f'''<div style="text-align: center; margin: 30px 0;">
+                    <a href="{acceptance_url}" style="display: inline-block; padding: 15px 40px; background-color: #2e7d32; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">
+                        View & Accept Offer
+                    </a>
+                </div></body>'''
+            )
+            
             params = {
                 "from": SENDER_EMAIL,
                 "to": [candidate['email']],
@@ -2149,7 +2181,8 @@ async def send_offer_letter(request: OfferLetterRequest, current_user: User = De
         "success": True,
         "email_sent": email_sent,
         "pdf_url": pdf_url,
-        "offer_letter_id": offer_letter['id']
+        "offer_letter_id": offer_letter['id'],
+        "acceptance_url": acceptance_url
     }
 
 @api_router.post("/emergent/update-statutory/{candidate_id}")
