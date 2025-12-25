@@ -1942,6 +1942,157 @@ async def rollback_onboarding(
         "lifecycle_event_id": lifecycle_event.id
     }
 
+# ============= SCORECARD ROUTES =============
+
+from pydantic import BaseModel
+from typing import Dict, List
+
+class ScorecardCreate(BaseModel):
+    """Scorecard submission"""
+    candidate_id: str
+    stage: str
+    scores: Dict[str, int]  # {"criteria": score}
+    overall_score: int
+    notes: str
+    recommendation: str = "standard"  # standard, highly_recommended
+    interviewed_at: str
+
+@api_router.post("/scorecards")
+async def create_scorecard(scorecard: ScorecardCreate, current_user: User = Depends(get_current_user)):
+    """Submit interview scorecard with conditional routing"""
+    candidate = await db.candidates.find_one({"id": scorecard.candidate_id}, {"_id": 0})
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    # Create scorecard record
+    scorecard_doc = {
+        "id": str(uuid.uuid4()),
+        "candidate_id": scorecard.candidate_id,
+        "stage": scorecard.stage,
+        "stage_label": scorecard.stage.replace('_', ' ').title(),
+        "scores": scorecard.scores,
+        "overall_score": scorecard.overall_score,
+        "notes": scorecard.notes,
+        "recommendation": scorecard.recommendation,
+        "interviewer_id": current_user.id,
+        "interviewer_name": current_user.name,
+        "interviewed_at": datetime.fromisoformat(scorecard.interviewed_at.replace('Z', '+00:00')),
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    await db.scorecards.insert_one(scorecard_doc)
+    
+    # Determine next stage based on routing logic
+    next_stage = None
+    auto_moved = False
+    
+    # Round 1 with Highly Recommended → Round 3
+    if scorecard.stage == 'round_1_technical' and scorecard.recommendation == 'highly_recommended':
+        next_stage = 'round_3_final'
+        auto_moved = True
+    
+    # Round 1 with Pass → Round 2
+    elif scorecard.stage == 'round_1_technical' and scorecard.overall_score >= 70:
+        next_stage = 'round_2_recommended'
+        auto_moved = True
+    
+    # Round 1 with Fail → Declined
+    elif scorecard.stage == 'round_1_technical' and scorecard.overall_score < 70:
+        next_stage = 'declined'
+        auto_moved = True
+    
+    # Round 2 with Pass → Round 3
+    elif scorecard.stage == 'round_2_recommended' and scorecard.overall_score >= 70:
+        next_stage = 'round_3_final'
+        auto_moved = True
+    
+    # Round 2 with Fail → Declined
+    elif scorecard.stage == 'round_2_recommended' and scorecard.overall_score < 70:
+        next_stage = 'declined'
+        auto_moved = True
+    
+    # Round 3 with Pass → HR Round
+    elif scorecard.stage == 'round_3_final' and scorecard.overall_score >= 70:
+        next_stage = 'hr_round'
+        auto_moved = True
+    
+    # Round 3 with Fail → Declined
+    elif scorecard.stage == 'round_3_final' and scorecard.overall_score < 70:
+        next_stage = 'declined'
+        auto_moved = True
+    
+    # Screening with Pass → Round 1
+    elif scorecard.stage == 'screening' and scorecard.overall_score >= 60:
+        next_stage = 'round_1_technical'
+        auto_moved = True
+    
+    # Screening with Fail → Declined
+    elif scorecard.stage == 'screening' and scorecard.overall_score < 60:
+        next_stage = 'declined'
+        auto_moved = True
+    
+    # HR Round with Pass → Offer (handled separately)
+    elif scorecard.stage == 'hr_round' and scorecard.overall_score >= 70:
+        next_stage = 'offer'
+        auto_moved = False  # Offer requires manual drafting
+    
+    # HR Round with Fail → Declined
+    elif scorecard.stage == 'hr_round' and scorecard.overall_score < 70:
+        next_stage = 'declined'
+        auto_moved = True
+    
+    # Update candidate stage if auto-movement triggered
+    if auto_moved and next_stage:
+        await db.candidates.update_one(
+            {"id": scorecard.candidate_id},
+            {"$set": {"stage": next_stage, "updated_at": datetime.now(timezone.utc)}}
+        )
+    
+    # Create lifecycle event
+    from lifecycle_engine import LifecycleEvent
+    lifecycle_event = LifecycleEvent(
+        candidate_id=scorecard.candidate_id,
+        event_type="scorecard_submitted",
+        event_subtype=scorecard.stage,
+        recruiter_id=current_user.id,
+        recruiter_email=current_user.email,
+        metadata={
+            "scorecard_id": scorecard_doc['id'],
+            "overall_score": scorecard.overall_score,
+            "recommendation": scorecard.recommendation,
+            "next_stage": next_stage,
+            "auto_moved": auto_moved
+        }
+    )
+    await db.lifecycle_events.insert_one(lifecycle_event.model_dump())
+    
+    return {
+        "success": True,
+        "scorecard_id": scorecard_doc['id'],
+        "auto_moved": auto_moved,
+        "next_stage": next_stage
+    }
+
+@api_router.get("/scorecards/history/{candidate_id}")
+async def get_scorecard_history(candidate_id: str, current_user: User = Depends(get_current_user)):
+    """Get all scorecards for a candidate (round history)"""
+    scorecards = await db.scorecards.find(
+        {"candidate_id": candidate_id},
+        {"_id": 0}
+    ).sort("interviewed_at", 1).to_list(100)
+    
+    return scorecards
+
+@api_router.get("/scorecards/candidate/{candidate_id}/stage/{stage}")
+async def get_stage_scorecard(candidate_id: str, stage: str, current_user: User = Depends(get_current_user)):
+    """Get scorecard for specific stage"""
+    scorecard = await db.scorecards.find_one(
+        {"candidate_id": candidate_id, "stage": stage},
+        {"_id": 0}
+    )
+    
+    return scorecard or {}
+
 # ============= OFFER ACCEPTANCE ROUTES =============
 
 @api_router.get("/offer-acceptance/{token}")
