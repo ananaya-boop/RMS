@@ -8,7 +8,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import Sidebar from '@/components/Sidebar';
 import DeclinedSidebar from '@/components/DeclinedSidebar';
-import OnboardingConfirmationModal from '@/components/OnboardingConfirmationModal';
 import { toast } from 'sonner';
 import { Plus, XCircle, Upload } from 'lucide-react';
 
