@@ -58,7 +58,14 @@ const handleStageChange = async (candidateId, newStage, fromStage) => {
     return; // Don't update stage yet, wait for offer to be sent
   }
 
-  // 2. Offer → Onboarding: Check if offer was accepted
+  // 2. Offer → HR Round: Rollback with confirmation (moved from onboarding)
+  if (fromStage === 'offer' && newStage === 'hr_round') {
+    setCandidateForRollback(candidate);
+    setShowRollbackModal(true);
+    return;
+  }
+
+  // 3. Offer → Onboarding: Check if offer was accepted
   if (fromStage === 'offer' && newStage === 'onboarding') {
     const offerStatus = offerStatuses[candidateId];
     
@@ -72,16 +79,19 @@ const handleStageChange = async (candidateId, newStage, fromStage) => {
       return;
     }
 
-    // Show onboarding confirmation modal
-    setCandidateToOnboard(candidate);
-    setShowOnboardingModal(true);
-    return;
-  }
-
-  // 3. Onboarding → Offer: Rollback with confirmation
-  if (fromStage === 'onboarding' && newStage === 'offer') {
-    setCandidateForRollback(candidate);
-    setShowRollbackModal(true);
+    // Directly move to onboarding (no special modal needed)
+    try {
+      const token = localStorage.getItem('token');
+      await axios.put(`${API}/candidates/${candidateId}/stage`, 
+        { stage: 'onboarding' },
+        { headers: { Authorization: `Bearer ${token}` }}
+      );
+      toast.success('Candidate moved to Onboarding!');
+      fetchCandidates();
+      fetchOfferStatuses();
+    } catch (error) {
+      toast.error('Failed to update stage');
+    }
     return;
   }
 
