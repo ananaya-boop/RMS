@@ -1872,6 +1872,78 @@ async def send_email(request: EmailRequest, current_user: User = Depends(get_cur
         logging.error(f"Failed to send email: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
 
+@api_router.post("/lifecycle/rollback-offer")
+async def rollback_offer(
+    candidate_id: str,
+    reason: str,
+    notes: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+):
+    """Rollback candidate from Offer to HR Round stage"""
+    candidate = await db.candidates.find_one({"id": candidate_id}, {"_id": 0})
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    if candidate.get('stage') != 'offer':
+        raise HTTPException(status_code=400, detail="Candidate must be in Offer stage to rollback")
+    
+    # Check if offer exists
+    offer = await db.offer_letters.find_one({"candidate_id": candidate_id}, {"_id": 0})
+    if not offer:
+        raise HTTPException(status_code=404, detail="No offer letter found for this candidate")
+    
+    # Update candidate stage back to HR Round
+    await db.candidates.update_one(
+        {"id": candidate_id},
+        {
+            "$set": {
+                "stage": "hr_round",
+                "updated_at": datetime.now(timezone.utc)
+            },
+            "$unset": {
+                "offer_rejected": ""  # Clear any rejection flags
+            }
+        }
+    )
+    
+    # Update offer status to "rollback_inactive"
+    await db.offer_letters.update_one(
+        {"candidate_id": candidate_id},
+        {
+            "$set": {
+                "status": "rollback_inactive",
+                "rollback_reason": reason,
+                "rollback_notes": notes,
+                "rollback_at": datetime.now(timezone.utc),
+                "rollback_by": current_user.id,
+                "updated_at": datetime.now(timezone.utc)
+            }
+        }
+    )
+    
+    # Create lifecycle event
+    from lifecycle_engine import LifecycleEvent
+    lifecycle_event = LifecycleEvent(
+        candidate_id=candidate_id,
+        event_type="offer_rollback",
+        recruiter_id=current_user.id,
+        recruiter_email=current_user.email,
+        metadata={
+            "reason": reason,
+            "notes": notes,
+            "offer_id": offer['id'],
+            "rolled_back_to": "hr_round"
+        }
+    )
+    await db.lifecycle_events.insert_one(lifecycle_event.model_dump())
+    
+    return {
+        "success": True,
+        "candidate_id": candidate_id,
+        "new_stage": "hr_round",
+        "lifecycle_event_id": lifecycle_event.id
+    }
+
 @api_router.post("/lifecycle/rollback-onboarding")
 async def rollback_onboarding(
     candidate_id: str,
