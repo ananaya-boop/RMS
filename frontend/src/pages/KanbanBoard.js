@@ -15,13 +15,67 @@ import { Plus, XCircle, Upload } from 'lucide-react';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
+// Multi-round pipeline with conditional routing
 const STAGES = [
-  { id: 'sourced', label: 'Sourced', color: 'bg-blue-100 border-blue-200' },
-  { id: 'screened', label: 'Screened', color: 'bg-purple-100 border-purple-200' },
-  { id: 'technical', label: 'Technical Round', color: 'bg-amber-100 border-amber-200' },
-  { id: 'hr_round', label: 'HR Round', color: 'bg-indigo-100 border-indigo-200' },
-  { id: 'offer', label: 'Offer', color: 'bg-emerald-100 border-emerald-200' },
-  { id: 'onboarding', label: 'Onboarding', color: 'bg-green-100 border-green-200' },
+  { 
+    id: 'sourced', 
+    label: 'Sourced', 
+    color: 'bg-blue-100 border-blue-200',
+    description: 'Initial candidate pool'
+  },
+  { 
+    id: 'screening', 
+    label: 'Screening', 
+    color: 'bg-purple-100 border-purple-200',
+    description: 'Resume & phone screening',
+    hasScorecard: true,
+    threshold: 60
+  },
+  { 
+    id: 'round_1_technical', 
+    label: 'Round 1 (Technical)', 
+    color: 'bg-amber-100 border-amber-200',
+    description: 'Core technical competencies',
+    hasScorecard: true,
+    hasRecommendation: true,
+    threshold: 70
+  },
+  { 
+    id: 'round_2_recommended', 
+    label: 'Round 2 (Intermediate)', 
+    color: 'bg-indigo-100 border-indigo-200',
+    description: 'Specialized intermediary assessment',
+    hasScorecard: true,
+    threshold: 70
+  },
+  { 
+    id: 'round_3_final', 
+    label: 'Round 3 (Final)', 
+    color: 'bg-violet-100 border-violet-200',
+    description: 'Final technical/managerial round',
+    hasScorecard: true,
+    threshold: 70
+  },
+  { 
+    id: 'hr_round', 
+    label: 'HR Round', 
+    color: 'bg-cyan-100 border-cyan-200',
+    description: 'HR discussion & negotiation',
+    hasScorecard: true,
+    threshold: 70
+  },
+  { 
+    id: 'offer', 
+    label: 'Offer', 
+    color: 'bg-emerald-100 border-emerald-200',
+    description: 'Offer sent & pending acceptance'
+  },
+  { 
+    id: 'onboarding', 
+    label: 'Onboarding', 
+    color: 'bg-green-100 border-green-200',
+    description: 'Accepted & onboarding in progress'
+  },
 ];
 
 export default function KanbanBoard({ user, onLogout }) {
