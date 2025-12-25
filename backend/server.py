@@ -1872,6 +1872,137 @@ async def send_email(request: EmailRequest, current_user: User = Depends(get_cur
         logging.error(f"Failed to send email: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
 
+# ============= OFFER ACCEPTANCE ROUTES =============
+
+@api_router.get("/offer-acceptance/{token}")
+async def get_offer_by_token(token: str):
+    """Get offer details for candidate acceptance portal"""
+    # Decode token to get candidate_id and offer_id
+    try:
+        import jwt
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=["HS256"])
+        candidate_id = payload.get("candidate_id")
+        offer_id = payload.get("offer_id")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Invalid or expired token")
+    
+    offer = await db.offer_letters.find_one({"id": offer_id}, {"_id": 0})
+    if not offer:
+        raise HTTPException(status_code=404, detail="Offer not found")
+    
+    candidate = await db.candidates.find_one({"id": candidate_id}, {"_id": 0})
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    return {
+        "offer": offer,
+        "candidate": {
+            "id": candidate['id'],
+            "name": candidate['name'],
+            "email": candidate['email']
+        }
+    }
+
+@api_router.post("/offer-acceptance/{token}/accept")
+async def accept_offer(token: str, signature_name: str, signed_at: str):
+    """Candidate accepts the offer"""
+    try:
+        import jwt
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=["HS256"])
+        candidate_id = payload.get("candidate_id")
+        offer_id = payload.get("offer_id")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Invalid or expired token")
+    
+    # Update offer status
+    await db.offer_letters.update_one(
+        {"id": offer_id},
+        {
+            "$set": {
+                "status": "accepted",
+                "signature_name": signature_name,
+                "signed_at": datetime.fromisoformat(signed_at.replace('Z', '+00:00')),
+                "updated_at": datetime.now(timezone.utc)
+            }
+        }
+    )
+    
+    # Update candidate stage to onboarding
+    await db.candidates.update_one(
+        {"id": candidate_id},
+        {"$set": {"stage": "onboarding", "updated_at": datetime.now(timezone.utc)}}
+    )
+    
+    # Create lifecycle event
+    lifecycle_event = {
+        "id": str(uuid.uuid4()),
+        "candidate_id": candidate_id,
+        "event_type": "offer_accepted",
+        "recruiter_id": "system",
+        "recruiter_email": "system@auto",
+        "metadata": {
+            "offer_id": offer_id,
+            "signature_name": signature_name
+        },
+        "timestamp": datetime.now(timezone.utc)
+    }
+    await db.lifecycle_events.insert_one(lifecycle_event)
+    
+    return {"success": True, "message": "Offer accepted successfully"}
+
+@api_router.post("/offer-acceptance/{token}/reject")
+async def reject_offer(token: str, rejection_reason: str = "Not specified"):
+    """Candidate rejects the offer"""
+    try:
+        import jwt
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=["HS256"])
+        candidate_id = payload.get("candidate_id")
+        offer_id = payload.get("offer_id")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Invalid or expired token")
+    
+    # Update offer status
+    await db.offer_letters.update_one(
+        {"id": offer_id},
+        {
+            "$set": {
+                "status": "rejected",
+                "rejection_reason": rejection_reason,
+                "rejected_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc)
+            }
+        }
+    )
+    
+    # Keep candidate in offer stage but mark as rejected
+    await db.candidates.update_one(
+        {"id": candidate_id},
+        {"$set": {"offer_rejected": True, "updated_at": datetime.now(timezone.utc)}}
+    )
+    
+    # Create lifecycle event
+    lifecycle_event = {
+        "id": str(uuid.uuid4()),
+        "candidate_id": candidate_id,
+        "event_type": "offer_rejected",
+        "recruiter_id": "system",
+        "recruiter_email": "system@auto",
+        "metadata": {
+            "offer_id": offer_id,
+            "rejection_reason": rejection_reason
+        },
+        "timestamp": datetime.now(timezone.utc)
+    }
+    await db.lifecycle_events.insert_one(lifecycle_event)
+    
+    return {"success": True, "message": "Offer rejection recorded"}
+
+@api_router.get("/offer-letters")
+async def get_all_offer_letters(current_user: User = Depends(get_current_user)):
+    """Get all offer letters with status"""
+    offers = await db.offer_letters.find({}, {"_id": 0}).to_list(1000)
+    return offers
+
 # ============= EMERGENT INTEGRATION ROUTES =============
 
 from emergent_integration import (
