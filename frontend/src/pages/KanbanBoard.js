@@ -218,15 +218,7 @@ export default function KanbanBoard({ user, onLogout }) {
   };
 
   const handleStageChange = async (candidateId, newStage) => {
-    // If moving to onboarding, show confirmation modal
-    if (newStage === 'onboarding') {
-      const candidate = candidates.find(c => c.id === candidateId);
-      setCandidateToOnboard(candidate);
-      setShowOnboardingModal(true);
-      return;
-    }
-
-    // For other stages, update directly
+    // For all stages, update directly (no special onboarding modal)
     try {
       const token = localStorage.getItem('token');
       await axios.put(`${API}/candidates/${candidateId}/stage`, 
