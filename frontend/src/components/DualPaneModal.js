@@ -20,6 +20,7 @@ const DualPaneModal = ({
   isOpen,
   onClose,
   title,
+  subtitle,
   leftPane: LeftPaneComponent,
   rightPane: RightPaneComponent,
   onSubmit,
@@ -27,9 +28,12 @@ const DualPaneModal = ({
   isSubmitting = false,
   formData,
   onFormChange,
-  previewData
+  previewData,
+  size = 'default' // 'default' or 'xl'
 }) => {
   if (!isOpen) return null;
+
+  const modalSizeClass = size === 'xl' ? 'max-w-[95vw]' : 'max-w-7xl';
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden">
@@ -41,10 +45,15 @@ const DualPaneModal = ({
       
       {/* Modal */}
       <div className="flex items-center justify-center min-h-screen p-4">
-        <div className="relative bg-white rounded-lg shadow-2xl w-full max-w-7xl h-[90vh] flex flex-col">
+        <div className={`relative bg-white rounded-lg shadow-2xl w-full ${modalSizeClass} h-[90vh] flex flex-col`}>
           {/* Header */}
           <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-            <h2 className="text-xl font-semibold text-gray-900">{title}</h2>
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900">{title}</h2>
+              {subtitle && (
+                <p className="text-sm text-gray-500 mt-1">{subtitle}</p>
+              )}
+            </div>
             <button
               onClick={onClose}
               className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
