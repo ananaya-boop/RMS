@@ -1847,6 +1847,58 @@ async def get_dashboard_stats(current_user: User = Depends(get_current_user)):
         "recent_candidates": recent_candidates
     }
 
+@api_router.get("/dashboard/stats/by-job/{job_id}")
+async def get_dashboard_stats_by_job(job_id: str, current_user: User = Depends(get_current_user)):
+    """
+    Get dashboard statistics filtered by specific job role
+    Returns candidate counts across pipeline stages for a specific job requisition
+    """
+    # Verify job exists
+    job = await db.jobs.find_one({"id": job_id}, {"_id": 0})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    # Count total candidates for this job
+    total_candidates = await db.candidates.count_documents({"job_id": job_id})
+    
+    # Count by stage for this specific job
+    pipeline = [
+        {"$match": {"job_id": job_id}},
+        {"$group": {"_id": "$stage", "count": {"$sum": 1}}}
+    ]
+    stage_counts = await db.candidates.aggregate(pipeline).to_list(100)
+    stage_distribution = {item['_id']: item['count'] for item in stage_counts}
+    
+    # Get recent candidates for this job
+    recent_candidates = await db.candidates.find(
+        {"job_id": job_id}, {"_id": 0}
+    ).sort("created_at", -1).limit(5).to_list(5)
+    
+    for candidate in recent_candidates:
+        if isinstance(candidate.get('created_at'), str):
+            candidate['created_at'] = datetime.fromisoformat(candidate['created_at'])
+        if isinstance(candidate.get('updated_at'), str):
+            candidate['updated_at'] = datetime.fromisoformat(candidate['updated_at'])
+    
+    # Get withdrawal requests for this job
+    withdrawal_count = await db.withdrawal_requests.count_documents({
+        "candidate_id": {"$in": [c['id'] for c in recent_candidates]},
+        "status": "pending"
+    })
+    
+    return {
+        "job_id": job_id,
+        "job_title": job['title'],
+        "job_department": job.get('department'),
+        "job_location": job.get('location'),
+        "total_jobs": 1,  # Since we're filtering by one job
+        "total_candidates": total_candidates,
+        "stage_distribution": stage_distribution,
+        "recent_candidates": recent_candidates,
+        "pending_withdrawals": withdrawal_count
+    }
+
+
 # ============= EMAIL ROUTES =============
 
 @api_router.post("/send-email")
