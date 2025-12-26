@@ -2455,6 +2455,181 @@ async def get_candidates_by_stage(
         'round_2': ['round_2_recommended'],
         'round_3': ['round_3_final'],
         'hr_round': ['hr_round'],
+
+
+@api_router.get("/analytics/tat/candidate/{candidate_id}/detailed")
+async def get_candidate_detailed_tat(
+    candidate_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get detailed TAT breakdown for individual candidate
+    Shows exact time spent in each stage with entry/exit timestamps
+    """
+    # Get candidate
+    candidate = await db.candidates.find_one({"id": candidate_id}, {"_id": 0})
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    # Get all pipeline logs for this candidate (ordered by time)
+    logs = await db.pipeline_logs.find(
+        {"candidate_id": candidate_id},
+        {"_id": 0}
+    ).sort("transition_timestamp", 1).to_list(100)
+    
+    # Build stage breakdown
+    stage_breakdown = []
+    current_stage = candidate.get('current_stage') or candidate.get('stage')
+    
+    # Stage name mapping for display
+    stage_names = {
+        'sourced': 'Sourced / Applied',
+        'screening': 'Screening',
+        'technical': 'Technical Round 1',
+        'round_1_technical': 'Technical Round 1',
+        'round_2_recommended': 'Technical Round 2',
+        'round_3_final': 'Technical Round 3',
+        'hr_round': 'HR Round',
+        'offer': 'Offer Stage',
+        'onboarding': 'Onboarding',
+        'declined': 'Declined'
+    }
+    
+    # Process each log to build stage breakdown
+    for i, log in enumerate(logs):
+        from_stage = log.get('from_stage')
+        if not from_stage:
+            continue
+        
+        stage_info = {
+            'stage_id': from_stage,
+            'stage_name': stage_names.get(from_stage, from_stage.replace('_', ' ').title()),
+            'entry_time': log.get('stage_entry_timestamp'),
+            'exit_time': log.get('stage_exit_timestamp'),
+            'duration_hours': log.get('time_in_previous_stage_hours', 0),
+            'duration_days': log.get('time_in_previous_stage_days', 0)
+        }
+        stage_breakdown.append(stage_info)
+    
+    # Add current stage if candidate is still in pipeline
+    if current_stage and current_stage not in ['declined', 'onboarding']:
+        # Get entry time for current stage (last log's exit time)
+        if logs:
+            last_log = logs[-1]
+            entry_time = datetime.fromisoformat(last_log['transition_timestamp'])
+            now = datetime.now(timezone.utc)
+            duration_hours = (now - entry_time).total_seconds() / 3600
+            
+            stage_breakdown.append({
+                'stage_id': current_stage,
+                'stage_name': stage_names.get(current_stage, current_stage.replace('_', ' ').title()),
+                'entry_time': entry_time.isoformat(),
+                'exit_time': None,  # Still in this stage
+                'duration_hours': round(duration_hours, 1),
+                'duration_days': round(duration_hours / 24, 1)
+            })
+    
+    # Calculate summary stats
+    total_hours = sum(s['duration_hours'] for s in stage_breakdown)
+    total_days = total_hours / 24
+    stages_completed = len([s for s in stage_breakdown if s['exit_time']])
+    avg_stage_days = total_days / len(stage_breakdown) if stage_breakdown else 0
+    
+    # Check which stages exceeded benchmarks
+    benchmarks = {
+        'sourced': 48,
+        'screening': 24,
+        'technical': 72,
+        'round_1_technical': 72,
+        'round_2_recommended': 72,
+        'round_3_final': 48,
+        'hr_round': 48,
+        'offer': 72
+    }
+    
+    exceeded_benchmarks = []
+    for stage in stage_breakdown:
+        stage_id = stage['stage_id']
+        if stage_id in benchmarks:
+            if stage['duration_hours'] > benchmarks[stage_id]:
+                exceeded_benchmarks.append(stage['stage_name'])
+    
+    # Current stage duration for heat map
+    current_stage_duration_hours = 0
+    if stage_breakdown:
+        last_stage = stage_breakdown[-1]
+        if not last_stage['exit_time']:  # Currently in this stage
+            current_stage_duration_hours = last_stage['duration_hours']
+    
+    return {
+        "candidate_id": candidate_id,
+        "candidate_name": candidate.get('name', ''),
+        "current_stage": current_stage,
+        "stage_breakdown": stage_breakdown,
+        "total_tat_hours": round(total_hours, 1),
+        "total_tat_days": round(total_days, 1),
+        "stages_completed": stages_completed,
+        "average_stage_days": round(avg_stage_days, 1),
+        "exceeded_benchmarks": exceeded_benchmarks,
+        "current_stage_duration_hours": current_stage_duration_hours
+    }
+
+
+@api_router.get("/analytics/tat/candidate/{candidate_id}/by-stage")
+async def get_candidate_tat_by_stage(
+    candidate_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get candidate's time in each stage for "View by Candidate" table view
+    Returns a map of stage_id -> duration
+    """
+    # Get all pipeline logs
+    logs = await db.pipeline_logs.find(
+        {"candidate_id": candidate_id},
+        {"_id": 0}
+    ).sort("transition_timestamp", 1).to_list(100)
+    
+    if not logs:
+        return {
+            "candidate_id": candidate_id,
+            "stage_times": {},
+            "current_stage_hours": 0
+        }
+    
+    # Map stage times
+    stage_times = {}
+    for log in logs:
+        from_stage = log.get('from_stage')
+        if from_stage:
+            # Map to simplified stage IDs for display
+            stage_id = from_stage
+            if from_stage in ['technical', 'round_1_technical']:
+                stage_id = 'round_1'
+            elif from_stage == 'round_2_recommended':
+                stage_id = 'round_2'
+            elif from_stage == 'round_3_final':
+                stage_id = 'round_3'
+            
+            stage_times[stage_id] = {
+                'hours': log.get('time_in_previous_stage_hours', 0),
+                'days': log.get('time_in_previous_stage_days', 0)
+            }
+    
+    # Current stage time
+    current_stage_hours = 0
+    if logs:
+        last_log = logs[-1]
+        entry_time = datetime.fromisoformat(last_log['transition_timestamp'])
+        now = datetime.now(timezone.utc)
+        current_stage_hours = (now - entry_time).total_seconds() / 3600
+    
+    return {
+        "candidate_id": candidate_id,
+        "stage_times": stage_times,
+        "current_stage_hours": round(current_stage_hours, 1)
+    }
+
         'offer': ['offer']
     }
     
