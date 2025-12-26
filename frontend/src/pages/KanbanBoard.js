@@ -582,6 +582,17 @@ export default function KanbanBoard({ user, onLogout }) {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Emergent Offer Modal - Triggered on HR → Offer transition */}
+      {showEmergentOfferModal && pendingOfferCandidate && (
+        <EmergentOfferModal
+          isOpen={showEmergentOfferModal}
+          onClose={handleEmergentOfferClose}
+          candidate={pendingOfferCandidate}
+          job={jobs.find(j => j.id === pendingOfferCandidate.job_id)}
+          onSuccess={handleEmergentOfferSuccess}
+        />
+      )}
     </div>
   );
 }
