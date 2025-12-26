@@ -4,7 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import Sidebar from '@/components/Sidebar';
-import { Users, Briefcase, TrendingUp, Clock } from 'lucide-react';
+import JobRoleFilter from '@/components/JobRoleFilter';
+import { Users, Briefcase, TrendingUp, Clock, Filter, AlertCircle } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -12,11 +13,45 @@ const API = `${BACKEND_URL}/api`;
 export default function Dashboard({ user, onLogout }) {
   const navigate = useNavigate();
   const [stats, setStats] = useState(null);
+  const [jobs, setJobs] = useState([]);
+  const [selectedJobId, setSelectedJobId] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [filterLoading, setFilterLoading] = useState(false);
 
   useEffect(() => {
-    fetchStats();
+    fetchInitialData();
   }, []);
+
+  useEffect(() => {
+    if (selectedJobId !== null) {
+      fetchFilteredStats(selectedJobId);
+    } else {
+      fetchStats();
+    }
+  }, [selectedJobId]);
+
+  const fetchInitialData = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      
+      // Fetch both stats and jobs in parallel
+      const [statsResponse, jobsResponse] = await Promise.all([
+        axios.get(`${API}/dashboard/stats`, {
+          headers: { Authorization: `Bearer ${token}` }
+        }),
+        axios.get(`${API}/jobs`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+      ]);
+      
+      setStats(statsResponse.data);
+      setJobs(jobsResponse.data);
+    } catch (error) {
+      console.error('Error fetching initial data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const fetchStats = async () => {
     try {
@@ -30,6 +65,31 @@ export default function Dashboard({ user, onLogout }) {
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchFilteredStats = async (jobId) => {
+    setFilterLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`${API}/dashboard/stats/by-job/${jobId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setStats(response.data);
+    } catch (error) {
+      console.error('Error fetching filtered stats:', error);
+    } finally {
+      setFilterLoading(false);
+    }
+  };
+
+  const handleJobSelect = (jobId) => {
+    setSelectedJobId(jobId);
+  };
+
+  const getSelectedJobTitle = () => {
+    if (!selectedJobId) return null;
+    const job = jobs.find(j => j.id === selectedJobId);
+    return job?.title || '';
   };
 
   return (
