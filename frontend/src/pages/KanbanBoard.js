@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import Sidebar from '@/components/Sidebar';
 import DeclinedSidebar from '@/components/DeclinedSidebar';
 import OfferConfirmationModal from '@/components/OfferConfirmationModal';
+import EmergentOfferModal from '@/components/EmergentOfferModal';
 import { toast } from 'sonner';
 import { Plus, XCircle, Upload } from 'lucide-react';
 
