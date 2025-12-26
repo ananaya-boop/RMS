@@ -18,6 +18,8 @@ export default function Dashboard({ user, onLogout }) {
   const [selectedJobId, setSelectedJobId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [filterLoading, setFilterLoading] = useState(false);
+  const [tatData, setTatData] = useState(null);
+  const [tatLoading, setTatLoading] = useState(false);
 
   useEffect(() => {
     fetchInitialData();
