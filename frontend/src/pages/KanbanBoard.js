@@ -359,6 +359,16 @@ export default function KanbanBoard({ user, onLogout }) {
             </div>
           </div>
 
+
+          {/* Brief TAT Ribbon - Stage-Wise Efficiency */}
+          <BriefTATRibbon 
+            selectedJobId={selectedJob}
+            onStageClick={(stage) => {
+              console.log('Stage clicked:', stage);
+              // Could scroll to that stage column if needed
+            }}
+          />
+
           <div className="flex gap-6 overflow-x-auto pb-8 snap-x">
             {STAGES.map(stage => (
               <div 
