@@ -293,11 +293,11 @@ export default function KanbanBoard({ user, onLogout }) {
   };
 
   const getCandidatesByStage = (stage) => {
-    return candidates.filter(c => c.stage === stage);
+    return candidates.filter(c => (c.stage || c.current_stage) === stage);
   };
 
   const getDeclinedCandidates = () => {
-    return candidates.filter(c => c.stage === 'declined');
+    return candidates.filter(c => (c.stage || c.current_stage) === 'declined');
   };
 
   const handleDeclineCandidate = async (candidateId) => {
