@@ -1912,6 +1912,13 @@ async def get_dashboard_stats_by_job(job_id: str, current_user: User = Depends(g
         "job_id": job_id,
         "job_title": job['title'],
         "job_department": job.get('department'),
+        "job_location": job.get('location'),
+        "total_jobs": 1,
+        "total_candidates": total_candidates,
+        "stage_distribution": stage_distribution,
+        "recent_candidates": recent_candidates,
+        "pending_withdrawals": withdrawal_count
+    }
 
 
 # ============= TAT ANALYTICS ENDPOINTS =============
