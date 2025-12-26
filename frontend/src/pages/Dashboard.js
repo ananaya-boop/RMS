@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import Sidebar from '@/components/Sidebar';
 import JobRoleFilter from '@/components/JobRoleFilter';
+import TATDashboardCard from '@/components/TATDashboardCard';
 import { Users, Briefcase, TrendingUp, Clock, Filter, AlertCircle } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
