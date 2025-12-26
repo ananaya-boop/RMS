@@ -28,8 +28,10 @@ export default function Dashboard({ user, onLogout }) {
   useEffect(() => {
     if (selectedJobId !== null) {
       fetchFilteredStats(selectedJobId);
+      fetchTATData(selectedJobId);
     } else {
       fetchStats();
+      fetchTATData(null);
     }
   }, [selectedJobId]);
 
