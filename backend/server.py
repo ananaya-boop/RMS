@@ -2284,6 +2284,228 @@ async def compare_job_tats(
     return {"comparisons": comparisons}
 
 
+@api_router.get("/analytics/tat/stage-wise/overview")
+async def get_stage_wise_tat_overview(current_user: User = Depends(get_current_user)):
+    """
+    Get average TAT for each stage across all jobs
+    Returns stage-wise metrics with candidate counts
+    """
+    # Map stage names
+    stage_mapping = {
+        'screening': ['sourced', 'screening'],
+        'round_1': ['technical', 'round_1_technical'],
+        'round_2': ['round_2_recommended'],
+        'round_3': ['round_3_final'],
+        'hr_round': ['hr_round'],
+        'offer': ['offer']
+    }
+    
+    stage_metrics = {}
+    
+    for stage_key, stage_values in stage_mapping.items():
+        # Get candidates in this stage
+        candidates_in_stage = await db.candidates.find({
+            "current_stage": {"$in": stage_values}
+        }, {"_id": 0}).to_list(1000)
+        
+        if not candidates_in_stage:
+            stage_metrics[stage_key] = {
+                "avg_days": 0,
+                "candidate_count": 0,
+                "min_days": 0,
+                "max_days": 0
+            }
+            continue
+        
+        # Calculate time in stage for each candidate
+        tat_days = []
+        for candidate in candidates_in_stage:
+            # Get last pipeline log for this candidate
+            last_log = await db.pipeline_logs.find_one(
+                {"candidate_id": candidate['id']},
+                {"_id": 0},
+                sort=[("transition_timestamp", -1)]
+            )
+            
+            if last_log:
+                entry_time = datetime.fromisoformat(last_log['transition_timestamp'])
+                now = datetime.now(timezone.utc)
+                days_in_stage = (now - entry_time).total_seconds() / (24 * 3600)
+                tat_days.append(days_in_stage)
+        
+        if tat_days:
+            stage_metrics[stage_key] = {
+                "avg_days": round(sum(tat_days) / len(tat_days), 1),
+                "candidate_count": len(candidates_in_stage),
+                "min_days": round(min(tat_days), 1),
+                "max_days": round(max(tat_days), 1)
+            }
+        else:
+            stage_metrics[stage_key] = {
+                "avg_days": 0,
+                "candidate_count": len(candidates_in_stage),
+                "min_days": 0,
+                "max_days": 0
+            }
+    
+    total_candidates = await db.candidates.count_documents({})
+    
+    return {
+        "stage_metrics": stage_metrics,
+        "total_candidates": total_candidates
+    }
+
+
+@api_router.get("/analytics/tat/stage-wise/job/{job_id}")
+async def get_stage_wise_tat_by_job(
+    job_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get average TAT for each stage for a specific job
+    """
+    # Verify job exists
+    job = await db.jobs.find_one({"id": job_id}, {"_id": 0})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    # Map stage names
+    stage_mapping = {
+        'screening': ['sourced', 'screening'],
+        'round_1': ['technical', 'round_1_technical'],
+        'round_2': ['round_2_recommended'],
+        'round_3': ['round_3_final'],
+        'hr_round': ['hr_round'],
+        'offer': ['offer']
+    }
+    
+    stage_metrics = {}
+    
+    for stage_key, stage_values in stage_mapping.items():
+        # Get candidates in this stage for this job
+        candidates_in_stage = await db.candidates.find({
+            "job_id": job_id,
+            "current_stage": {"$in": stage_values}
+        }, {"_id": 0}).to_list(1000)
+        
+        if not candidates_in_stage:
+            stage_metrics[stage_key] = {
+                "avg_days": 0,
+                "candidate_count": 0,
+                "min_days": 0,
+                "max_days": 0
+            }
+            continue
+        
+        # Calculate time in stage for each candidate
+        tat_days = []
+        for candidate in candidates_in_stage:
+            # Get last pipeline log for this candidate
+            last_log = await db.pipeline_logs.find_one(
+                {"candidate_id": candidate['id']},
+                {"_id": 0},
+                sort=[("transition_timestamp", -1)]
+            )
+            
+            if last_log:
+                entry_time = datetime.fromisoformat(last_log['transition_timestamp'])
+                now = datetime.now(timezone.utc)
+                days_in_stage = (now - entry_time).total_seconds() / (24 * 3600)
+                tat_days.append(days_in_stage)
+        
+        if tat_days:
+            stage_metrics[stage_key] = {
+                "avg_days": round(sum(tat_days) / len(tat_days), 1),
+                "candidate_count": len(candidates_in_stage),
+                "min_days": round(min(tat_days), 1),
+                "max_days": round(max(tat_days), 1)
+            }
+        else:
+            stage_metrics[stage_key] = {
+                "avg_days": 0,
+                "candidate_count": len(candidates_in_stage),
+                "min_days": 0,
+                "max_days": 0
+            }
+    
+    total_candidates = await db.candidates.count_documents({"job_id": job_id})
+    
+    return {
+        "job_id": job_id,
+        "job_title": job['title'],
+        "stage_metrics": stage_metrics,
+        "total_candidates": total_candidates
+    }
+
+
+@api_router.get("/candidates/by-stage/{stage}")
+async def get_candidates_by_stage(
+    stage: str,
+    job_id: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get all candidates currently in a specific stage
+    Used for "click on stage to see candidates" feature
+    """
+    # Map stage ID to actual stage values
+    stage_mapping = {
+        'screening': ['sourced', 'screening'],
+        'round_1': ['technical', 'round_1_technical'],
+        'round_2': ['round_2_recommended'],
+        'round_3': ['round_3_final'],
+        'hr_round': ['hr_round'],
+        'offer': ['offer']
+    }
+    
+    stage_values = stage_mapping.get(stage, [stage])
+    
+    # Build query
+    query = {"current_stage": {"$in": stage_values}}
+    if job_id:
+        query["job_id"] = job_id
+    
+    # Get candidates
+    candidates = await db.candidates.find(query, {"_id": 0}).to_list(1000)
+    
+    # Calculate time in stage for each candidate
+    enriched_candidates = []
+    for candidate in candidates:
+        # Get last pipeline log
+        last_log = await db.pipeline_logs.find_one(
+            {"candidate_id": candidate['id']},
+            {"_id": 0},
+            sort=[("transition_timestamp", -1)]
+        )
+        
+        time_in_stage_days = 0
+        if last_log:
+            entry_time = datetime.fromisoformat(last_log['transition_timestamp'])
+            now = datetime.now(timezone.utc)
+            time_in_stage_days = round((now - entry_time).total_seconds() / (24 * 3600), 1)
+        
+        enriched_candidates.append({
+            "id": candidate['id'],
+            "name": candidate.get('name', ''),
+            "email": candidate.get('email', ''),
+            "phone": candidate.get('phone', ''),
+            "job_title": candidate.get('job_title', ''),
+            "current_stage": candidate.get('current_stage', ''),
+            "time_in_stage_days": time_in_stage_days,
+            "created_at": candidate.get('created_at', '')
+        })
+    
+    # Sort by time in stage (longest first)
+    enriched_candidates.sort(key=lambda x: x['time_in_stage_days'], reverse=True)
+    
+    return {
+        "stage": stage,
+        "candidates": enriched_candidates,
+        "total": len(enriched_candidates)
+    }
+
+
+
 # ============= EMAIL ROUTES =============
 
 @api_router.post("/send-email")
