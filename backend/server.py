@@ -2283,14 +2283,6 @@ async def compare_job_tats(
     
     return {"comparisons": comparisons}
 
-        "job_location": job.get('location'),
-        "total_jobs": 1,  # Since we're filtering by one job
-        "total_candidates": total_candidates,
-        "stage_distribution": stage_distribution,
-        "recent_candidates": recent_candidates,
-        "pending_withdrawals": withdrawal_count
-    }
-
 
 # ============= EMAIL ROUTES =============
 
