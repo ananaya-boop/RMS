@@ -97,6 +97,11 @@ export default function KanbanBoard({ user, onLogout }) {
     skills: '',
     experience_years: 0
   });
+  
+  // Emergent Offer Modal states
+  const [showEmergentOfferModal, setShowEmergentOfferModal] = useState(false);
+  const [pendingOfferCandidate, setPendingOfferCandidate] = useState(null);
+  const [pendingOfferStage, setPendingOfferStage] = useState(null);
 
   useEffect(() => {
     fetchJobs();
