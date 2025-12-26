@@ -222,7 +222,32 @@ export default function KanbanBoard({ user, onLogout }) {
   };
 
   const handleStageChange = async (candidateId, newStage) => {
-    // For all stages, update directly (no special onboarding modal)
+    // Find the candidate being moved
+    const candidate = candidates.find(c => c.id === candidateId);
+    if (!candidate) {
+      toast.error('Candidate not found');
+      return;
+    }
+    
+    const currentStage = candidate.stage || candidate.current_stage;
+    
+    // EMERGENT COMPLIANCE: Intercept HR Round → Offer transition
+    // Mandatory offer modal with statutory data collection
+    if (currentStage === 'hr_round' && newStage === 'offer') {
+      // Find the job for this candidate
+      const job = jobs.find(j => j.id === candidate.job_id);
+      
+      // Store the pending transition and show EmergentOfferModal
+      setPendingOfferCandidate(candidate);
+      setPendingOfferStage(newStage);
+      setShowEmergentOfferModal(true);
+      
+      // Don't proceed with stage change yet - modal will handle it
+      toast.info('Please complete the offer details before proceeding');
+      return;
+    }
+    
+    // For all other stages, update directly
     try {
       const token = localStorage.getItem('token');
       await axios.put(`${API}/candidates/${candidateId}/stage`, 
@@ -234,6 +259,37 @@ export default function KanbanBoard({ user, onLogout }) {
     } catch (error) {
       toast.error('Failed to update stage');
     }
+  };
+  
+  const handleEmergentOfferSuccess = async () => {
+    // Offer was successfully created, now update the stage
+    if (pendingOfferCandidate && pendingOfferStage) {
+      try {
+        const token = localStorage.getItem('token');
+        await axios.put(`${API}/candidates/${pendingOfferCandidate.id}/stage`, 
+          { stage: pendingOfferStage },
+          { headers: { Authorization: `Bearer ${token}` }}
+        );
+        toast.success('Offer letter sent and candidate moved to Offer stage!');
+        
+        // Reset pending states
+        setPendingOfferCandidate(null);
+        setPendingOfferStage(null);
+        
+        // Refresh candidates
+        fetchCandidates();
+      } catch (error) {
+        toast.error('Failed to update candidate stage');
+      }
+    }
+  };
+  
+  const handleEmergentOfferClose = () => {
+    // User cancelled the offer modal
+    setShowEmergentOfferModal(false);
+    setPendingOfferCandidate(null);
+    setPendingOfferStage(null);
+    toast.info('Offer creation cancelled. Candidate remains in HR Round.');
   };
 
   const getCandidatesByStage = (stage) => {
