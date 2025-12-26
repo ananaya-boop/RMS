@@ -1861,13 +1861,13 @@ async def get_dashboard_stats_by_job(job_id: str, current_user: User = Depends(g
     # Count total candidates for this job
     total_candidates = await db.candidates.count_documents({"job_id": job_id})
     
-    # Count by stage for this specific job
+    # Count by stage for this specific job (use current_stage field)
     pipeline = [
         {"$match": {"job_id": job_id}},
-        {"$group": {"_id": "$stage", "count": {"$sum": 1}}}
+        {"$group": {"_id": "$current_stage", "count": {"$sum": 1}}}
     ]
     stage_counts = await db.candidates.aggregate(pipeline).to_list(100)
-    stage_distribution = {item['_id']: item['count'] for item in stage_counts}
+    stage_distribution = {item['_id']: item['count'] for item in stage_counts if item['_id']}
     
     # Get recent candidates for this job
     recent_candidates = await db.candidates.find(
@@ -1879,6 +1879,9 @@ async def get_dashboard_stats_by_job(job_id: str, current_user: User = Depends(g
             candidate['created_at'] = datetime.fromisoformat(candidate['created_at'])
         if isinstance(candidate.get('updated_at'), str):
             candidate['updated_at'] = datetime.fromisoformat(candidate['updated_at'])
+        # Use current_stage if stage is not set
+        if not candidate.get('stage') and candidate.get('current_stage'):
+            candidate['stage'] = candidate['current_stage']
     
     # Get withdrawal requests for this job
     withdrawal_count = await db.withdrawal_requests.count_documents({
