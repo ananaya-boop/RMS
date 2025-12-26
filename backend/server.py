@@ -1893,6 +1893,370 @@ async def get_dashboard_stats_by_job(job_id: str, current_user: User = Depends(g
         "job_id": job_id,
         "job_title": job['title'],
         "job_department": job.get('department'),
+
+
+# ============= TAT ANALYTICS ENDPOINTS =============
+
+@api_router.post("/pipeline-logs")
+async def create_pipeline_log(
+    candidate_id: str,
+    from_stage: str,
+    to_stage: str,
+    notes: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Create a pipeline log entry when candidate moves between stages
+    This is automatically triggered on stage changes
+    """
+    # Get candidate details
+    candidate = await db.candidates.find_one({"id": candidate_id}, {"_id": 0})
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    # Get the last log entry for this candidate to calculate time in previous stage
+    last_log = await db.pipeline_logs.find_one(
+        {"candidate_id": candidate_id},
+        {"_id": 0},
+        sort=[("transition_timestamp", -1)]
+    )
+    
+    now = datetime.now(timezone.utc)
+    
+    # Calculate time spent in previous stage
+    time_in_previous_stage_hours = 0
+    stage_entry_timestamp = now
+    
+    if last_log:
+        stage_entry_timestamp = datetime.fromisoformat(last_log['transition_timestamp'])
+        time_diff_ms = (now - stage_entry_timestamp).total_seconds() * 1000
+        time_in_previous_stage_hours = round(time_diff_ms / (1000 * 60 * 60), 1)
+    else:
+        # First transition - use candidate created_at
+        if candidate.get('created_at'):
+            created_at = candidate['created_at']
+            if isinstance(created_at, str):
+                created_at = datetime.fromisoformat(created_at)
+            time_diff_ms = (now - created_at).total_seconds() * 1000
+            time_in_previous_stage_hours = round(time_diff_ms / (1000 * 60 * 60), 1)
+            stage_entry_timestamp = created_at
+    
+    log_entry = {
+        "id": str(uuid.uuid4()),
+        "candidate_id": candidate_id,
+        "candidate_name": candidate.get('name', ''),
+        "job_id": candidate.get('job_id', ''),
+        "job_title": candidate.get('job_title', ''),
+        "from_stage": from_stage,
+        "to_stage": to_stage,
+        "transition_timestamp": now.isoformat(),
+        "time_in_previous_stage_hours": time_in_previous_stage_hours,
+        "time_in_previous_stage_days": round(time_in_previous_stage_hours / 24, 1),
+        "performed_by": current_user['email'],
+        "performed_by_name": current_user.get('name', ''),
+        "notes": notes or '',
+        "stage_entry_timestamp": stage_entry_timestamp.isoformat(),
+        "stage_exit_timestamp": now.isoformat(),
+        "created_at": now.isoformat()
+    }
+    
+    await db.pipeline_logs.insert_one(log_entry)
+    
+    # Trigger async TAT summary recalculation (background job)
+    # For now, we'll do it synchronously
+    await recalculate_candidate_tat(candidate_id)
+    
+    return {"success": True, "log_id": log_entry['id']}
+
+
+@api_router.get("/pipeline-logs/candidate/{candidate_id}")
+async def get_candidate_pipeline_logs(
+    candidate_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get all pipeline logs for a candidate (stage transition history)
+    """
+    logs = await db.pipeline_logs.find(
+        {"candidate_id": candidate_id},
+        {"_id": 0}
+    ).sort("transition_timestamp", 1).to_list(100)
+    
+    for log in logs:
+        if isinstance(log.get('transition_timestamp'), str):
+            log['transition_timestamp'] = datetime.fromisoformat(log['transition_timestamp'])
+        if isinstance(log.get('stage_entry_timestamp'), str):
+            log['stage_entry_timestamp'] = datetime.fromisoformat(log['stage_entry_timestamp'])
+        if isinstance(log.get('stage_exit_timestamp'), str):
+            log['stage_exit_timestamp'] = datetime.fromisoformat(log['stage_exit_timestamp'])
+    
+    return {"logs": logs, "total": len(logs)}
+
+
+async def recalculate_candidate_tat(candidate_id: str):
+    """
+    Recalculate TAT summary for a candidate based on pipeline logs
+    """
+    # Get all logs for this candidate
+    logs = await db.pipeline_logs.find(
+        {"candidate_id": candidate_id},
+        {"_id": 0}
+    ).sort("transition_timestamp", 1).to_list(100)
+    
+    if not logs:
+        return
+    
+    candidate = await db.candidates.find_one({"id": candidate_id}, {"_id": 0})
+    if not candidate:
+        return
+    
+    # Calculate time in each stage
+    stage_tats = {}
+    for log in logs:
+        if log['from_stage']:
+            stage_tats[log['from_stage']] = log.get('time_in_previous_stage_hours', 0)
+    
+    # Calculate aggregated TAT metrics
+    screening_tat = stage_tats.get('sourced', 0) + stage_tats.get('screening', 0)
+    technical_tat = (
+        stage_tats.get('round_1_technical', 0) +
+        stage_tats.get('round_2_recommended', 0) +
+        stage_tats.get('round_3_final', 0) +
+        stage_tats.get('technical', 0)
+    )
+    hr_tat = stage_tats.get('hr_round', 0)
+    offer_tat = stage_tats.get('offer', 0)
+    
+    total_tat_hours = sum(stage_tats.values())
+    
+    # Standard thresholds (hours)
+    thresholds = {
+        'screening': 48,
+        'technical_rounds': 192,  # 8 days
+        'hr_round': 48,
+        'offer': 72
+    }
+    
+    # Check which stages exceeded thresholds
+    exceeded_thresholds = []
+    if screening_tat > thresholds['screening']:
+        exceeded_thresholds.append('screening')
+    if technical_tat > thresholds['technical_rounds']:
+        exceeded_thresholds.append('technical')
+    if hr_tat > thresholds['hr_round']:
+        exceeded_thresholds.append('hr_round')
+    if offer_tat > thresholds['offer']:
+        exceeded_thresholds.append('offer')
+    
+    # Create or update TAT summary
+    tat_summary = {
+        "id": str(uuid.uuid4()),
+        "candidate_id": candidate_id,
+        "candidate_name": candidate.get('name', ''),
+        "job_id": candidate.get('job_id', ''),
+        "job_title": candidate.get('job_title', ''),
+        "stage_tats": stage_tats,
+        "screening_tat_hours": screening_tat,
+        "screening_tat_days": round(screening_tat / 24, 1),
+        "technical_tat_hours": technical_tat,
+        "technical_tat_days": round(technical_tat / 24, 1),
+        "hr_tat_hours": hr_tat,
+        "hr_tat_days": round(hr_tat / 24, 1),
+        "offer_tat_hours": offer_tat,
+        "offer_tat_days": round(offer_tat / 24, 1),
+        "total_tat_hours": total_tat_hours,
+        "total_tat_days": round(total_tat_hours / 24, 1),
+        "exceeded_thresholds": exceeded_thresholds,
+        "current_stage": candidate.get('current_stage') or candidate.get('stage'),
+        "is_completed": candidate.get('current_stage') in ['onboarding', 'declined'],
+        "last_updated": datetime.now(timezone.utc).isoformat()
+    }
+    
+    # Upsert TAT summary
+    await db.candidate_tat_summary.update_one(
+        {"candidate_id": candidate_id},
+        {"$set": tat_summary},
+        upsert=True
+    )
+
+
+@api_router.get("/analytics/tat/candidate/{candidate_id}")
+async def get_candidate_tat(
+    candidate_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get TAT summary for a specific candidate
+    """
+    tat_summary = await db.candidate_tat_summary.find_one(
+        {"candidate_id": candidate_id},
+        {"_id": 0}
+    )
+    
+    if not tat_summary:
+        # Calculate on-the-fly if not exists
+        await recalculate_candidate_tat(candidate_id)
+        tat_summary = await db.candidate_tat_summary.find_one(
+            {"candidate_id": candidate_id},
+            {"_id": 0}
+        )
+    
+    return tat_summary or {}
+
+
+@api_router.get("/analytics/tat/job/{job_id}")
+async def get_job_tat_analytics(
+    job_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get average TAT analytics for a specific job
+    """
+    # Aggregate TAT data for all candidates in this job
+    pipeline = [
+        {"$match": {"job_id": job_id, "is_completed": True}},
+        {"$group": {
+            "_id": "$job_id",
+            "job_title": {"$first": "$job_title"},
+            "avg_screening_tat_days": {"$avg": "$screening_tat_days"},
+            "avg_technical_tat_days": {"$avg": "$technical_tat_days"},
+            "avg_hr_tat_days": {"$avg": "$hr_tat_days"},
+            "avg_offer_tat_days": {"$avg": "$offer_tat_days"},
+            "avg_total_tat_days": {"$avg": "$total_tat_days"},
+            "min_total_tat_days": {"$min": "$total_tat_days"},
+            "max_total_tat_days": {"$max": "$total_tat_days"},
+            "total_candidates": {"$sum": 1},
+            "candidates_exceeded": {
+                "$sum": {
+                    "$cond": [{"$gt": [{"$size": "$exceeded_thresholds"}, 0]}, 1, 0]
+                }
+            }
+        }},
+        {"$project": {
+            "_id": 0,
+            "job_id": "$_id",
+            "job_title": 1,
+            "avg_screening_tat_days": {"$round": ["$avg_screening_tat_days", 1]},
+            "avg_technical_tat_days": {"$round": ["$avg_technical_tat_days", 1]},
+            "avg_hr_tat_days": {"$round": ["$avg_hr_tat_days", 1]},
+            "avg_offer_tat_days": {"$round": ["$avg_offer_tat_days", 1]},
+            "avg_total_tat_days": {"$round": ["$avg_total_tat_days", 1]},
+            "min_total_tat_days": {"$round": ["$min_total_tat_days", 1]},
+            "max_total_tat_days": {"$round": ["$max_total_tat_days", 1]},
+            "total_candidates": 1,
+            "candidates_exceeded": 1
+        }}
+    ]
+    
+    result = await db.candidate_tat_summary.aggregate(pipeline).to_list(1)
+    
+    if not result:
+        return {
+            "job_id": job_id,
+            "avg_total_tat_days": 0,
+            "total_candidates": 0
+        }
+    
+    return result[0]
+
+
+@api_router.get("/analytics/tat/overview")
+async def get_tat_overview(current_user: User = Depends(get_current_user)):
+    """
+    Get overall TAT analytics across all jobs
+    """
+    # Get average TAT across all completed candidates
+    pipeline = [
+        {"$match": {"is_completed": True}},
+        {"$group": {
+            "_id": None,
+            "avg_total_tat_days": {"$avg": "$total_tat_days"},
+            "avg_screening_tat_days": {"$avg": "$screening_tat_days"},
+            "avg_technical_tat_days": {"$avg": "$technical_tat_days"},
+            "avg_hr_tat_days": {"$avg": "$hr_tat_days"},
+            "avg_offer_tat_days": {"$avg": "$offer_tat_days"},
+            "total_candidates": {"$sum": 1},
+            "candidates_exceeded": {
+                "$sum": {
+                    "$cond": [{"$gt": [{"$size": "$exceeded_thresholds"}, 0]}, 1, 0]
+                }
+            }
+        }},
+        {"$project": {
+            "_id": 0,
+            "avg_total_tat_days": {"$round": ["$avg_total_tat_days", 1]},
+            "avg_screening_tat_days": {"$round": ["$avg_screening_tat_days", 1]},
+            "avg_technical_tat_days": {"$round": ["$avg_technical_tat_days", 1]},
+            "avg_hr_tat_days": {"$round": ["$avg_hr_tat_days", 1]},
+            "avg_offer_tat_days": {"$round": ["$avg_offer_tat_days", 1]},
+            "total_candidates": 1,
+            "candidates_exceeded": 1
+        }}
+    ]
+    
+    result = await db.candidate_tat_summary.aggregate(pipeline).to_list(1)
+    
+    # Get target TAT
+    target_tat_days = 21
+    
+    if result:
+        overview = result[0]
+        overview['target_tat_days'] = target_tat_days
+        overview['is_on_track'] = overview['avg_total_tat_days'] <= target_tat_days
+        return overview
+    
+    return {
+        "avg_total_tat_days": 0,
+        "target_tat_days": target_tat_days,
+        "total_candidates": 0
+    }
+
+
+@api_router.get("/analytics/tat/exceeded")
+async def get_exceeded_tat_candidates(
+    threshold_type: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get candidates currently exceeding TAT thresholds
+    """
+    # Build match criteria
+    match_criteria = {"exceeded_thresholds": {"$ne": []}}
+    
+    if threshold_type:
+        match_criteria["exceeded_thresholds"] = threshold_type
+    
+    candidates = await db.candidate_tat_summary.find(
+        match_criteria,
+        {"_id": 0}
+    ).sort("total_tat_days", -1).to_list(100)
+    
+    return {"candidates": candidates, "total": len(candidates)}
+
+
+@api_router.get("/analytics/tat/compare")
+async def compare_job_tats(
+    job_ids: str,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Compare TAT across multiple jobs
+    Query param format: job_ids=id1,id2,id3
+    """
+    job_id_list = job_ids.split(',')
+    
+    # Get TAT for each job
+    comparisons = []
+    for job_id in job_id_list:
+        job_tat = await get_job_tat_analytics(job_id.strip(), current_user)
+        if job_tat.get('total_candidates', 0) > 0:
+            comparisons.append(job_tat)
+    
+    # Sort by average TAT (fastest first)
+    comparisons.sort(key=lambda x: x.get('avg_total_tat_days', 999))
+    
+    return {"comparisons": comparisons}
+
         "job_location": job.get('location'),
         "total_jobs": 1,  # Since we're filtering by one job
         "total_candidates": total_candidates,
