@@ -490,6 +490,10 @@ async def update_candidate_stage(candidate_id: str, stage_data: StageUpdate, cur
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
     
+    # Get current stage before update
+    old_stage = candidate.get('stage') or candidate.get('current_stage', '')
+    new_stage = stage_data.stage
+    
     # Add to stage history
     stage_history = candidate.get('stage_history', [])
     stage_history.append({
@@ -503,11 +507,26 @@ async def update_candidate_stage(candidate_id: str, stage_data: StageUpdate, cur
         {
             "$set": {
                 "stage": stage_data.stage,
+                "current_stage": stage_data.stage,  # Update both fields for consistency
                 "updated_at": datetime.now(timezone.utc).isoformat(),
                 "stage_history": stage_history
             }
         }
     )
+    
+    # AUTO-CREATE PIPELINE LOG for TAT tracking
+    if old_stage and old_stage != new_stage:
+        try:
+            await create_pipeline_log(
+                candidate_id=candidate_id,
+                from_stage=old_stage,
+                to_stage=new_stage,
+                notes=f"Stage changed by {current_user.get('name', current_user['email'])}",
+                current_user=current_user
+            )
+        except Exception as e:
+            logger.error(f"Failed to create pipeline log: {str(e)}")
+            # Don't fail the stage update if logging fails
     
     updated_candidate = await db.candidates.find_one({"id": candidate_id}, {"_id": 0})
     
