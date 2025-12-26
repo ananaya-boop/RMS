@@ -87,6 +87,26 @@ export default function Dashboard({ user, onLogout }) {
     }
   };
 
+  const fetchTATData = async (jobId) => {
+    setTatLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const endpoint = jobId 
+        ? `${API}/analytics/tat/job/${jobId}`
+        : `${API}/analytics/tat/overview`;
+      
+      const response = await axios.get(endpoint, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setTatData(response.data);
+    } catch (error) {
+      console.error('Error fetching TAT data:', error);
+      setTatData(null);
+    } finally {
+      setTatLoading(false);
+    }
+  };
+
   const handleJobSelect = (jobId) => {
     setSelectedJobId(jobId);
   };
