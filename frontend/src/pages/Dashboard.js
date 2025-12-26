@@ -368,6 +368,16 @@ export default function Dashboard({ user, onLogout }) {
                 </Card>
               </div>
 
+              {/* TAT Analytics Card */}
+              <div className="mt-6">
+                <TATDashboardCard
+                  jobId={selectedJobId}
+                  tatData={tatData}
+                  loading={tatLoading}
+                />
+              </div>
+
+
               <div className="mt-6 flex gap-4">
                 <Button 
                   data-testid="view-kanban-btn"
